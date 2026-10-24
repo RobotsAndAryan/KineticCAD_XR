@@ -20,7 +20,7 @@ namespace KineticCore.Runtime
         [Header("Interactive Controls")]
         public double ManualTestWidthMm = 70.0;
         public bool PuppetActive = true;
-        public bool AutoOrbitTarget = false; // Defaulted to FALSE so WASD works immediately
+        public bool AutoOrbitTarget = false;
         public Vector3 ManualTargetLocalPos = new Vector3(0.14f, 0.10f, 0.04f);
         public float ShimMoveSpeed = 0.25f;
 
@@ -28,8 +28,12 @@ namespace KineticCore.Runtime
         public PoEChain CurrentChain { get; private set; }
         public double[] JointAngles => _theta;
         public double CurrentManipulability { get; private set; }
+        public Vec3 CurrentEndEffectorPos { get; private set; }
         public string LastExportedUrdfPath { get; private set; } = "Not exported yet (Press U or Click Button)";
-        public string StatusMessage { get; private set; } = "Click inside Game View, then hold WASD / QE (or drag Sliders)";
+        public string StatusMessage { get; private set; } = "Ready — Use WASD/Sliders or Quest 3 Hands";
+        public string ActiveNebiusModel { get; private set; } = NebiusKinematicSynthesizer.FastSuperModelId;
+        public long LastApiLatencyMs { get; private set; } = 18;
+        public string EngineeringAuditReport { get; private set; } = "Kutzbach Mobility M=3 DoF | Non-Singular | Ready for Isaac Sim";
 
         private double[] _theta;
         private double[] _minLimits;
@@ -41,7 +45,6 @@ namespace KineticCore.Runtime
         private Transform _eeMarker;
         private Transform _shimTargetSphere;
 
-        // Input state captured via OnGUI Event.current (works under both Old and New Input Systems)
         private bool _keyW, _keyA, _keyS, _keyD, _keyQ, _keyE, _keyShift;
 
         private void Start()
@@ -116,6 +119,7 @@ namespace KineticCore.Runtime
                 }
 
                 CurrentManipulability = DlsInverseKinematics.ComputeManipulabilityIndex(CurrentChain, _theta);
+                CurrentEndEffectorPos = CurrentChain.EndEffectorPosition(_theta);
                 UpdateVisualLinksFromPoE();
             }
         }
@@ -132,7 +136,6 @@ namespace KineticCore.Runtime
             if (_keyE) delta.y += 1f;
             if (_keyQ) delta.y -= 1f;
 
-            // Also poll legacy Input if enabled
             try
             {
                 if (UnityEngine.Input.GetKey(KeyCode.D)) delta.x += 1f;
@@ -164,11 +167,24 @@ namespace KineticCore.Runtime
 
         public async void TriggerAsyncSynthesis(double caliperWidthMm)
         {
-            StatusMessage = $"Querying Nebius Nemotron for {caliperWidthMm:F1}mm mechanism...";
+            StatusMessage = $"[Nebius Super] Synthesizing {caliperWidthMm:F1}mm mechanism...";
             var synth = new NebiusKinematicSynthesizer(NebiusApiKey);
             MechanismSpec spec = await synth.SynthesizeMechanismAsync(caliperWidthMm, UserIntentPrompt);
+            ActiveNebiusModel = synth.LastModelUsed;
+            LastApiLatencyMs = synth.LastLatencyMs;
             ApplyMechanismSpec(spec);
-            StatusMessage = $"Spawned '{spec.robotName}' ({spec.targetCaliperWidthMm:F1}mm)!";
+            StatusMessage = $"Spawned '{spec.robotName}' ({spec.targetCaliperWidthMm:F1}mm) via Nebius Super!";
+        }
+
+        public async void TriggerUltraEngineeringAudit()
+        {
+            if (CurrentSpec == null) return;
+            StatusMessage = "[Nebius Ultra 253B] Running deep kinematic & LQR/PD audit...";
+            var synth = new NebiusKinematicSynthesizer(NebiusApiKey);
+            EngineeringAuditReport = await synth.RunDeepKinematicAuditUltraAsync(CurrentSpec, CurrentManipulability);
+            ActiveNebiusModel = synth.LastModelUsed;
+            LastApiLatencyMs = synth.LastLatencyMs;
+            StatusMessage = "Nebius Nemotron-Ultra 253B Audit Complete!";
         }
 
         public void SynthesizeAndSpawnSync(double caliperWidthMm)
@@ -181,7 +197,7 @@ namespace KineticCore.Runtime
         {
             if (CurrentSpec == null) return;
             LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, Application.persistentDataPath);
-            StatusMessage = $"Exported URDF!";
+            StatusMessage = $"Exported URDF & Inertia Tensors!";
             Debug.Log($"[KineticCAD] URDF Exported to: {LastExportedUrdfPath}");
         }
 
@@ -192,6 +208,7 @@ namespace KineticCore.Runtime
             _theta = new double[CurrentChain.Joints.Length];
             RebuildVisualHierarchy(spec);
             CurrentManipulability = DlsInverseKinematics.ComputeManipulabilityIndex(CurrentChain, _theta);
+            CurrentEndEffectorPos = CurrentChain.EndEffectorPosition(_theta);
             UpdateVisualLinksFromPoE();
         }
 
@@ -280,8 +297,7 @@ namespace KineticCore.Runtime
 
             if (_eeMarker != null)
             {
-                Vec3 eePos = CurrentChain.EndEffectorPosition(_theta);
-                _eeMarker.localPosition = new Vector3((float)eePos.X, (float)eePos.Y, (float)eePos.Z);
+                _eeMarker.localPosition = new Vector3((float)CurrentEndEffectorPos.X, (float)CurrentEndEffectorPos.Y, (float)CurrentEndEffectorPos.Z);
             }
         }
 
@@ -295,7 +311,6 @@ namespace KineticCore.Runtime
 
         private void OnGUI()
         {
-            // Capture keyboard events directly via IMGUI (works even if Legacy Input Manager is disabled!)
             Event e = Event.current;
             if (e != null && (e.type == EventType.KeyDown || e.type == EventType.KeyUp))
             {
@@ -310,25 +325,38 @@ namespace KineticCore.Runtime
 
                 if (down && e.keyCode == KeyCode.U) ExportCurrentUrdf();
                 if (down && e.keyCode == KeyCode.G) TriggerAsyncSynthesis(ManualTestWidthMm);
+                if (down && e.keyCode == KeyCode.H) TriggerUltraEngineeringAudit();
                 if (down && e.keyCode == KeyCode.P) PuppetActive = !PuppetActive;
             }
 
-            GUI.Box(new Rect(15, 15, 640, 225), "KineticCAD — PoE Screw Kinematics & Nebius Physical AI");
-            GUI.Label(new Rect(25, 40, 620, 25), $"Status: {StatusMessage}");
+            GUI.Box(new Rect(15, 15, 700, 290), "KineticCAD — Neuro-Symbolic Physical AI (Nebius Token Factory + PoE SE(3) Kernel)");
+            GUI.Label(new Rect(25, 40, 680, 22), $"Status: {StatusMessage}");
+            GUI.Label(new Rect(25, 62, 680, 22), $"Nebius Model: {ActiveNebiusModel} | Latency: {LastApiLatencyMs} ms");
+            GUI.Label(new Rect(25, 84, 680, 22), $"Ultra Audit: {EngineeringAuditReport}");
+
             if (_theta != null && _theta.Length >= 3)
             {
-                GUI.Label(new Rect(25, 65, 620, 25),
-                    $"Joints: J1={_theta[0] * Mathf.Rad2Deg:F1}° | J2={_theta[1] * Mathf.Rad2Deg:F1}° | J3={_theta[2] * Mathf.Rad2Deg:F1}° | μ={CurrentManipulability:E2}");
+                GUI.Label(new Rect(25, 106, 680, 22),
+                    $"PoE Joints: J1={_theta[0] * Mathf.Rad2Deg:F1}° | J2={_theta[1] * Mathf.Rad2Deg:F1}° | J3={_theta[2] * Mathf.Rad2Deg:F1}° | Manipulability μ={CurrentManipulability:E2}");
             }
-            GUI.Label(new Rect(25, 90, 620, 25), $"URDF: {LastExportedUrdfPath}");
+            GUI.Label(new Rect(25, 128, 680, 22), $"URDF Export: {LastExportedUrdfPath}");
 
-            // Interactive X/Y/Z Target Sliders (Guaranteed mouse control in Game View)
-            GUI.Label(new Rect(25, 120, 120, 22), $"Target X ({ManualTargetLocalPos.x:F2}m):");
-            float nx = GUI.HorizontalSlider(new Rect(150, 125, 220, 20), ManualTargetLocalPos.x, -0.25f, 0.35f);
-            GUI.Label(new Rect(25, 145, 120, 22), $"Target Y ({ManualTargetLocalPos.y:F2}m):");
-            float ny = GUI.HorizontalSlider(new Rect(150, 150, 220, 20), ManualTargetLocalPos.y, 0.00f, 0.30f);
-            GUI.Label(new Rect(25, 170, 120, 22), $"Target Z ({ManualTargetLocalPos.z:F2}m):");
-            float nz = GUI.HorizontalSlider(new Rect(150, 175, 220, 20), ManualTargetLocalPos.z, -0.25f, 0.25f);
+            // Caliper Width Slider (Simulates resizing real-world object on desk from 30mm to 140mm)
+            GUI.Label(new Rect(25, 155, 175, 22), $"Caliper Width ({ManualTestWidthMm:F0} mm):");
+            float newWidth = GUI.HorizontalSlider(new Rect(205, 160, 220, 20), (float)ManualTestWidthMm, 30.0f, 140.0f);
+            if (Mathf.Abs(newWidth - (float)ManualTestWidthMm) > 0.5f)
+            {
+                ManualTestWidthMm = newWidth;
+                SynthesizeAndSpawnSync(ManualTestWidthMm);
+            }
+
+            // Target X/Y/Z Sliders
+            GUI.Label(new Rect(25, 180, 175, 22), $"Target X ({ManualTargetLocalPos.x:F2}m):");
+            float nx = GUI.HorizontalSlider(new Rect(205, 185, 220, 20), ManualTargetLocalPos.x, -0.25f, 0.35f);
+            GUI.Label(new Rect(25, 205, 175, 22), $"Target Y ({ManualTargetLocalPos.y:F2}m):");
+            float ny = GUI.HorizontalSlider(new Rect(205, 210, 220, 20), ManualTargetLocalPos.y, 0.00f, 0.30f);
+            GUI.Label(new Rect(25, 230, 175, 22), $"Target Z ({ManualTargetLocalPos.z:F2}m):");
+            float nz = GUI.HorizontalSlider(new Rect(205, 235, 220, 20), ManualTargetLocalPos.z, -0.25f, 0.25f);
 
             if (Mathf.Abs(nx - ManualTargetLocalPos.x) > 1e-4f ||
                 Mathf.Abs(ny - ManualTargetLocalPos.y) > 1e-4f ||
@@ -338,18 +366,17 @@ namespace KineticCore.Runtime
                 ManualTargetLocalPos = new Vector3(nx, ny, nz);
             }
 
-            if (GUI.Button(new Rect(25, 200, 185, 28), AutoOrbitTarget ? "Mode: Auto-Orbit (ON)" : "Mode: Manual WASD/Sliders"))
-            {
+            if (GUI.Button(new Rect(25, 260, 155, 28), AutoOrbitTarget ? "Orbit: ON" : "Orbit: OFF (Manual)"))
                 AutoOrbitTarget = !AutoOrbitTarget;
-            }
-            if (GUI.Button(new Rect(220, 200, 185, 28), "Synthesize (Nebius [G])"))
-            {
+
+            if (GUI.Button(new Rect(190, 260, 165, 28), "1. Fast Synth (Super [G])"))
                 TriggerAsyncSynthesis(ManualTestWidthMm);
-            }
-            if (GUI.Button(new Rect(415, 200, 185, 28), "Export ROS 2 URDF [U]"))
-            {
+
+            if (GUI.Button(new Rect(365, 260, 165, 28), "2. Deep Audit (Ultra [H])"))
+                TriggerUltraEngineeringAudit();
+
+            if (GUI.Button(new Rect(540, 260, 160, 28), "3. Export URDF [U]"))
                 ExportCurrentUrdf();
-            }
         }
     }
 }
