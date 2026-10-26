@@ -1,6 +1,6 @@
 using System;
 
-namespace KineticCore.Math
+namespace KineticCore.Kinematics
 {
     public class PoEChain
     {

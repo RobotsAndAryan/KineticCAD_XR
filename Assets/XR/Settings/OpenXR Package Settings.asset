@@ -331,7 +331,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7e567abbf4d944210acb6315178bb015, type: 3}
   m_Name: ARCameraFeature Android
   m_EditorClassIdentifier: Unity.XR.MetaOpenXR::UnityEngine.XR.OpenXR.Features.Meta.ARCameraFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: 'Meta Quest: Camera (Passthrough)'
   version: 0.1.0
   featureIdInternal: com.unity.openxr.feature.arfoundation-meta-camera
@@ -624,7 +624,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 85fd4a84074c74cb183c18e803dabb9e, type: 3}
   m_Name: ARAnchorFeature Android
   m_EditorClassIdentifier: Unity.XR.MetaOpenXR::UnityEngine.XR.OpenXR.Features.Meta.ARAnchorFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: 'Meta Quest: Anchors'
   version: 0.1.0
   featureIdInternal: com.unity.openxr.feature.arfoundation-meta-anchor
@@ -668,7 +668,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dfde4033cbc8045a69c465b226fd4284, type: 3}
   m_Name: DisplayUtilitiesFeature Android
   m_EditorClassIdentifier: Unity.XR.MetaOpenXR::UnityEngine.XR.OpenXR.Features.Meta.DisplayUtilitiesFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: 'Meta Quest: Display Utilities'
   version: 0.1.0
   featureIdInternal: com.unity.openxr.feature.meta-display-utilities
@@ -1040,54 +1040,54 @@ MonoBehaviour:
   m_Name: Standalone
   m_EditorClassIdentifier: Unity.XR.OpenXR::UnityEngine.XR.OpenXR.OpenXRSettings
   features:
-  - {fileID: 4299578254642250872}
-  - {fileID: -5590223649118902851}
-  - {fileID: -7063391783349584087}
+  - {fileID: -3508313016859297530}
+  - {fileID: 5969219459340925919}
+  - {fileID: -8265331411680853487}
   - {fileID: -5778198985112001466}
-  - {fileID: 4028870579026222147}
-  - {fileID: -933851088534032530}
-  - {fileID: -1615572109222876255}
+  - {fileID: -7560273010712537615}
+  - {fileID: 5079757921101326153}
+  - {fileID: -433010448001776110}
+  - {fileID: -137656581156356614}
+  - {fileID: -1786875914172312123}
+  - {fileID: 36967656262792714}
+  - {fileID: 4399237246697324141}
+  - {fileID: 1813642592241793553}
+  - {fileID: -492516950863344728}
   - {fileID: 7580527280280468457}
-  - {fileID: 5413526502237959851}
-  - {fileID: -6553751237686460705}
+  - {fileID: -1615572109222876255}
+  - {fileID: -1612504979172356617}
+  - {fileID: -6373757130862447831}
+  - {fileID: -3047403807623727509}
+  - {fileID: -933851088534032530}
+  - {fileID: 297645145399900891}
+  - {fileID: 2021416891912462850}
+  - {fileID: -8376313829037154413}
+  - {fileID: -2367941375578725608}
+  - {fileID: 3419512883368624578}
   - {fileID: -203820349877178670}
   - {fileID: 901882283220157361}
-  - {fileID: -8376313829037154413}
-  - {fileID: 7489384515178995897}
-  - {fileID: 3419512883368624578}
-  - {fileID: -2367941375578725608}
-  - {fileID: -3508313016859297530}
-  - {fileID: -1048042890216302491}
-  - {fileID: -8543442129277807802}
   - {fileID: 755179592950276762}
+  - {fileID: -7063391783349584087}
+  - {fileID: 7489384515178995897}
   - {fileID: 265707041308826866}
-  - {fileID: -137656581156356614}
+  - {fileID: -1048042890216302491}
+  - {fileID: 5413526502237959851}
+  - {fileID: -6553751237686460705}
+  - {fileID: -8543442129277807802}
   - {fileID: -6110499158987232613}
   - {fileID: 7545776910250070977}
-  - {fileID: 5079757921101326153}
   - {fileID: -4753375954470127547}
   - {fileID: -3149411093881933675}
-  - {fileID: -6607529861214001233}
-  - {fileID: -433010448001776110}
-  - {fileID: 1813642592241793553}
-  - {fileID: -8021606389003432915}
-  - {fileID: -492516950863344728}
-  - {fileID: 36967656262792714}
-  - {fileID: -7872517207667665426}
-  - {fileID: -8265331411680853487}
-  - {fileID: 2021416891912462850}
-  - {fileID: -4131798833846425212}
-  - {fileID: -1786875914172312123}
-  - {fileID: -6373757130862447831}
-  - {fileID: 297645145399900891}
   - {fileID: 391957378881066742}
-  - {fileID: -7135106803667922899}
-  - {fileID: -7560273010712537615}
-  - {fileID: 4399237246697324141}
-  - {fileID: -1612504979172356617}
-  - {fileID: -3047403807623727509}
+  - {fileID: -7872517207667665426}
+  - {fileID: -5590223649118902851}
+  - {fileID: -4131798833846425212}
+  - {fileID: -6607529861214001233}
   - {fileID: 4267595779819421975}
-  - {fileID: 5969219459340925919}
+  - {fileID: 4299578254642250872}
+  - {fileID: -7135106803667922899}
+  - {fileID: -8021606389003432915}
+  - {fileID: 4028870579026222147}
   customLoaderName: 
   m_renderMode: 1
   m_latencyOptimization: 0
@@ -1137,7 +1137,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 651d103057d74c4d8e51d0b368d3d98b, type: 3}
   m_Name: ColocationDiscoveryFeature Android
   m_EditorClassIdentifier: Unity.XR.MetaOpenXR::UnityEngine.XR.OpenXR.Features.Meta.ColocationDiscoveryFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: 'Meta Quest: Colocation Discovery'
   version: 1.0.0
   featureIdInternal: com.unity.openxr.feature.meta-colocation-discovery
@@ -2055,7 +2055,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d00bb9c182ae8406ca03773119fa07ea, type: 3}
   m_Name: ARPlaneFeature Android
   m_EditorClassIdentifier: Unity.XR.MetaOpenXR::UnityEngine.XR.OpenXR.Features.Meta.ARPlaneFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: 'Meta Quest: Planes'
   version: 0.1.0
   featureIdInternal: com.unity.openxr.feature.arfoundation-meta-plane
@@ -2215,7 +2215,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f2a13300a9e14cacbb01ed5d6ae84e69, type: 3}
   m_Name: ARMeshFeature Android
   m_EditorClassIdentifier: Unity.XR.MetaOpenXR::UnityEngine.XR.OpenXR.Features.Meta.ARMeshFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: 'Meta Quest: Meshing'
   version: 0.1.0
   featureIdInternal: com.unity.openxr.feature.arfoundation-meta-mesh
@@ -2292,7 +2292,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dc65ec7c51504536bd51a47e3cb8fb6a, type: 3}
   m_Name: ARBoundingBoxFeature Android
   m_EditorClassIdentifier: Unity.XR.MetaOpenXR::UnityEngine.XR.OpenXR.Features.Meta.ARBoundingBoxFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: 'Meta Quest: Bounding Boxes'
   version: 0.1.0
   featureIdInternal: com.unity.openxr.feature.arfoundation-meta-bounding-boxes
@@ -2338,7 +2338,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4ec7ac3a07bc448fbb43bbcff14d5b12, type: 3}
   m_Name: ARRaycastFeature Android
   m_EditorClassIdentifier: Unity.XR.MetaOpenXR::UnityEngine.XR.OpenXR.Features.Meta.ARRaycastFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: 'Meta Quest: Raycasts'
   version: 0.1.0
   featureIdInternal: com.unity.openxr.feature.arfoundation-meta-raycast
@@ -2474,7 +2474,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4f61610f95074135a9fd060fc37c4788, type: 3}
   m_Name: BoundaryVisibilityFeature Android
   m_EditorClassIdentifier: Unity.XR.MetaOpenXR::UnityEngine.XR.OpenXR.Features.Meta.BoundaryVisibilityFeature
-  m_enabled: 0
+  m_enabled: 1
   nameUi: 'Meta Quest: Boundary Visibility'
   version: 0.1.0
   featureIdInternal: com.unity.openxr.feature.meta-boundary-visibility

@@ -1,8 +1,9 @@
 using UnityEngine;
-using KineticCore.Input;
+using UnityEngine.Scripting;
 
 namespace KineticCore.Input
 {
+    [Preserve]
     public class DesktopMouseShimProvider : MonoBehaviour, ISpatialHandInput
     {
         [SerializeField] private Transform deskFrame;
@@ -15,6 +16,7 @@ namespace KineticCore.Input
         private Vector3 _leftWorld;
         private Vector3 _rightWorld;
         private bool _initialized;
+        private MaterialPropertyBlock _mpb;
 
         public Vector3 LeftFingertipWorld  => _leftWorld;
         public Vector3 RightFingertipWorld => _rightWorld;
@@ -22,8 +24,9 @@ namespace KineticCore.Input
 
         private void Awake()
         {
+            _mpb = new MaterialPropertyBlock();
             if (deskFrame == null)
-                deskFrame = GameObject.Find("DeskWorkspaceOrigin")?.transform;
+                deskFrame = GameObject.Find("DeskWorkspaceOrigin")?.transform ?? transform;
 
             CreateSpheres();
             _initialized = true;
@@ -35,21 +38,21 @@ namespace KineticCore.Input
             {
                 leftSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 leftSphere.name = "Shim_Left";
+                Destroy(leftSphere.GetComponent<Collider>());
                 leftSphere.transform.localScale = Vector3.one * 0.02f;
                 leftSphere.transform.position = deskFrame.position + deskFrame.right * -0.05f + deskFrame.up * 0.01f;
-                var mat = new Material(Shader.Find("Standard"));
-                mat.color = Color.blue;
-                leftSphere.GetComponent<Renderer>().sharedMaterial = mat;
+                SetColorSafe(leftSphere.GetComponent<Renderer>(), Color.blue);
+                _leftWorld = leftSphere.transform.position;
             }
             if (rightSphere == null)
             {
                 rightSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 rightSphere.name = "Shim_Right";
+                Destroy(rightSphere.GetComponent<Collider>());
                 rightSphere.transform.localScale = Vector3.one * 0.02f;
                 rightSphere.transform.position = deskFrame.position + deskFrame.right * 0.05f + deskFrame.up * 0.01f;
-                var mat = new Material(Shader.Find("Standard"));
-                mat.color = Color.red;
-                rightSphere.GetComponent<Renderer>().sharedMaterial = mat;
+                SetColorSafe(rightSphere.GetComponent<Renderer>(), Color.red);
+                _rightWorld = rightSphere.transform.position;
             }
         }
 
@@ -57,37 +60,33 @@ namespace KineticCore.Input
         {
             if (deskFrame == null) return;
 
-            // LEFT: mouse raycast onto desk plane
-            if (Camera.main != null)
-            {
-                Ray ray = Camera.main.ScreenPointToRay(UnityEngine.Input.mousePosition);
-                Vector3 planePoint = deskFrame.position;
-                Vector3 planeNormal = deskFrame.up;
-                float denom = Vector3.Dot(ray.direction, planeNormal);
-                if (Mathf.Abs(denom) > 1e-6f)
-                {
-                    float t = Vector3.Dot(planePoint - ray.origin, planeNormal) / denom;
-                    if (t > 0f)
-                        _leftWorld = ray.origin + ray.direction * t;
-                }
-            }
-            leftSphere.transform.position = _leftWorld;
-
-            // RIGHT: WASD + Shift
-            bool shift = UnityEngine.Input.GetKey(KeyCode.LeftShift) || UnityEngine.Input.GetKey(KeyCode.RightShift);
+            bool shift = KInput.GetKey(KeyCode.LeftShift) || KInput.GetKey(KeyCode.RightShift);
             float speed = moveSpeed * (shift ? shiftMultiplier : 1f);
             Vector3 move = Vector3.zero;
-            if (UnityEngine.Input.GetKey(KeyCode.W)) move += deskFrame.forward;
-            if (UnityEngine.Input.GetKey(KeyCode.S)) move -= deskFrame.forward;
-            if (UnityEngine.Input.GetKey(KeyCode.A)) move -= deskFrame.right;
-            if (UnityEngine.Input.GetKey(KeyCode.D)) move += deskFrame.right;
+            if (KInput.GetKey(KeyCode.W)) move += deskFrame.forward;
+            if (KInput.GetKey(KeyCode.S)) move -= deskFrame.forward;
+            if (KInput.GetKey(KeyCode.D)) move += deskFrame.right;
+            if (KInput.GetKey(KeyCode.A)) move -= deskFrame.right;
+            if (KInput.GetKey(KeyCode.E)) move += deskFrame.up;
+            if (KInput.GetKey(KeyCode.Q)) move -= deskFrame.up;
 
             if (move.sqrMagnitude > 0.01f)
             {
                 move.Normalize();
                 _rightWorld += move * (speed * Time.deltaTime);
             }
-            rightSphere.transform.position = _rightWorld;
+            if (rightSphere != null)
+                rightSphere.transform.position = _rightWorld;
+        }
+
+        private void SetColorSafe(Renderer r, Color c)
+        {
+            if (r == null) return;
+            if (_mpb == null) _mpb = new MaterialPropertyBlock();
+            r.GetPropertyBlock(_mpb);
+            _mpb.SetColor("_BaseColor", c);
+            _mpb.SetColor("_Color", c);
+            r.SetPropertyBlock(_mpb);
         }
     }
-}   
+}

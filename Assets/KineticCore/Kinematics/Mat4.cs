@@ -1,4 +1,4 @@
-namespace KineticCore.Math
+namespace KineticCore.Kinematics
 {
     public struct Mat4
     {

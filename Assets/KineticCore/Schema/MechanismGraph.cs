@@ -1,5 +1,5 @@
 using System;
-using KineticCore.Math;
+using KineticCore.Kinematics;
 
 namespace KineticCore.Schema
 {

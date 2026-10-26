@@ -1,12 +1,15 @@
-﻿[Ll]ibrary/
+[Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
 [Bb]uild/
 [Bb]uilds/
 [Ll]ogs/
 [Uu]ser[Ss]ettings/
+[Uu]tmp/
+.utmp/
 *.csproj
 *.sln
+*.slnx
 *.suo
 *.tmp
 *.user
@@ -21,3 +24,9 @@
 .vs/
 .idea/
 .DS_Store
+nebius_key.txt
+**/nebius_key.txt
+**/nebius_key.txt.meta
+target_ip.txt
+**/target_ip.txt
+**/target_ip.txt.meta
