@@ -95,12 +95,15 @@ The resulting mechanism mounts directly onto the physical desk, can be **puppete
 3. Put on the Quest 3 and launch **KineticCAD XR** from the Unknown Sources menu.
 4. Point both index fingers to measure any object on your desk, or poke the 3D buttons along the front desk edge to synthesize and puppet the robotic mechanism.
 
-### Running the Python ROS / Isaac Sim Bridge
-In a terminal on your host machine (on the same local network as the Quest 3):
+### Running the Python ROS 2 / Isaac Sim / Standalone Telemetry Bridge
+In a terminal on your host machine (works out-of-the-box on Windows, macOS, and Linux **with or without** `rclpy` installed):
 ```bash
 python Tools/udp_to_joint_states.py --port 9870
 ```
-This logs live joint angles (`[j1, j2, j3]`) at 60 Hz and forwards them to ROS or Isaac Sim.
+- **If ROS 2 (`rclpy`) is installed:** Publishes live `/joint_states` (`sensor_msgs/msg/JointState`) and `/cmd_vel` (`geometry_msgs/msg/Twist`) at 60 Hz.
+- **If running on Windows / standalone Python:** Automatically launches a live 60 Hz terminal telemetry dashboard displaying real-time joint angles (`J1`, `J2`, `J3` in degrees), Yoshikawa manipulability $\mu(\boldsymbol{\theta})$, and singularity health.
+- **Pre-exported Reference URDFs:** Ready-to-inspect `.urdf` files with analytical inertia tensors ($I_{xx}, I_{yy}, I_{zz}$) are included in [`Exports/`](Exports/) (`kinetic_claw_70mm.urdf`, `kinetic_claw_145mm.urdf`), and pressing **EXPORT URDF** in the Editor also writes directly to `Exports/`.
+- **Hackathon Pitch & Devpost Guide:** See [`HACKATHON_SUBMISSION.md`](HACKATHON_SUBMISSION.md) for full submission copy and the 2-minute demo script.
 
 ---
 

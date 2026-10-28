@@ -686,10 +686,10 @@ namespace KineticCore.Runtime
                 }
             }
 
-            GUI.Box(new Rect(12, 12, 470, 220), "");
-            GUILayout.BeginArea(new Rect(20, 18, 454, 210));
-            GUILayout.Label($"<b>KINETIC-CAD XR — NEURO-SYMBOLIC PHYSICAL AI</b>  (Object: {ManualTestWidthMm:F0} mm)");
-            GUILayout.Label($"Model: {ActiveNebiusModel} ({LastApiLatencyMs} ms) | μ = {CurrentManipulability:E2}");
+            GUI.Box(new Rect(12, 12, 505, 224), "");
+            GUILayout.BeginArea(new Rect(20, 18, 488, 212));
+            GUILayout.Label($"<b>KINETIC-CAD XR | NVIDIA NEMOTRON x NEBIUS PHYSICAL AI</b>  ({ManualTestWidthMm:F0} mm)");
+            GUILayout.Label($"AI Engine: {ActiveNebiusModel} ({LastApiLatencyMs} ms) | μ = {CurrentManipulability:E2} | UDP: 60Hz :9870");
             GUILayout.Label($"Audit: {EngineeringAuditReport}");
             GUILayout.Label($"Status: {StatusMessage}");
 
@@ -723,8 +723,8 @@ namespace KineticCore.Runtime
         {
             if (_vrHologramText == null || _theta == null || _theta.Length < 3) return;
             _vrHologramText.text =
-                $"KINETIC-CAD PHYSICAL AI (Object: {ManualTestWidthMm:F0}mm)  {(PuppetActive ? "LIVE PUPPET" : "LOCKED")}\n" +
-                $"Nebius: {ActiveNebiusModel} ({LastApiLatencyMs}ms)\n" +
+                $"KINETIC-CAD XR | NVIDIA NEMOTRON x NEBIUS (Object: {ManualTestWidthMm:F0}mm)  {(PuppetActive ? "LIVE PUPPET" : "LOCKED")}\n" +
+                $"AI Model: {ActiveNebiusModel} ({LastApiLatencyMs}ms) | Telemetry: 60Hz UDP :9870\n" +
                 $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}°\n" +
                 $"μ={CurrentManipulability:E2} | {EngineeringAuditReport}\n" +
                 $"{StatusMessage}";
@@ -797,8 +797,21 @@ namespace KineticCore.Runtime
             try
             {
                 LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, Application.persistentDataPath);
+                if (Application.isEditor)
+                {
+                    try
+                    {
+                        DirectoryInfo rootDir = Directory.GetParent(Application.dataPath);
+                        if (rootDir != null)
+                        {
+                            string exportsDir = Path.Combine(rootDir.FullName, "Exports");
+                            LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, exportsDir);
+                        }
+                    }
+                    catch { }
+                }
                 _exportFlashTimer = 0.8f; // Flash robot links bright emerald green to confirm URDF export!
-                StatusMessage = $"URDF EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} (ROS 2 Ready)";
+                StatusMessage = $"URDF EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} (ROS 2 & Isaac Sim Ready)";
                 Debug.Log($"[KineticCAD] URDF Exported to: {LastExportedUrdfPath}");
                 WriteDiagnosticState("ExportUrdf");
             }

@@ -1,0 +1,82 @@
+<?xml version="1.0"?>
+<robot name="kinetic_claw_70mm">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0.0000 0.0300 0.0000" rpy="0 0 0"/>
+      <mass value="0.2500"/>
+      <inertia ixx="2.0833E-04" ixy="0" ixz="0" iyy="2.6667E-04" iyz="0" izz="2.0833E-04"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0000 0.0300 0.0000" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.0800 0.0600 0.0800"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.0000 0.0300 0.0000" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.0800 0.0600 0.0800"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="proximal_link">
+    <inertial>
+      <origin xyz="0.0518 0.0600 0.0000" rpy="0 0 0"/>
+      <mass value="0.1500"/>
+      <inertia ixx="1.6900E-05" ixy="0" ixz="0" iyy="1.4260E-04" iyz="0" izz="1.4260E-04"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0518 0.0600 0.0000" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1036 0.0260 0.0260"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.0518 0.0600 0.0000" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1036 0.0260 0.0260"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="distal_jaw_link">
+    <inertial>
+      <origin xyz="0.1462 0.0600 0.0000" rpy="0 0 0"/>
+      <mass value="0.1000"/>
+      <inertia ixx="8.0667E-06" ixy="0" ixz="0" iyy="6.4337E-05" iyz="0" izz="6.4337E-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.1462 0.0600 0.0000" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.0851 0.0220 0.0220"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.1462 0.0600 0.0000" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.0851 0.0220 0.0220"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="ee_tip"/>
+  <joint name="base_yaw_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="proximal_link"/>
+    <origin xyz="0.0000 0.0600 0.0000" rpy="0 0 0"/>
+    <axis xyz="0.0000 1.0000 0.0000"/>
+    <limit lower="-3.1416" upper="3.1416" effort="15.0" velocity="3.14"/>
+  </joint>
+  <joint name="shoulder_pitch_joint" type="revolute">
+    <parent link="proximal_link"/>
+    <child link="distal_jaw_link"/>
+    <origin xyz="0.0000 0.0000 0.0000" rpy="0 0 0"/>
+    <axis xyz="0.0000 0.0000 1.0000"/>
+    <limit lower="-1.5708" upper="1.5708" effort="15.0" velocity="3.14"/>
+  </joint>
+  <joint name="elbow_pitch_joint" type="revolute">
+    <parent link="distal_jaw_link"/>
+    <child link="ee_tip"/>
+    <origin xyz="0.1036 0.0000 0.0000" rpy="0 0 0"/>
+    <axis xyz="0.0000 0.0000 1.0000"/>
+    <limit lower="-2.0940" upper="2.0940" effort="15.0" velocity="3.14"/>
+  </joint>
+</robot>

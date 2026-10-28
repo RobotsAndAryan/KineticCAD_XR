@@ -63,6 +63,10 @@ namespace KineticCore.Export
             try
             {
                 _udpClient.Send(bytes, bytes.Length, TargetIp, TargetPort);
+                if (TargetIp != "127.0.0.1" && TargetIp != "localhost")
+                {
+                    _udpClient.Send(bytes, bytes.Length, "127.0.0.1", TargetPort);
+                }
             }
             catch
             {

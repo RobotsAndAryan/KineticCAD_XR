@@ -30,3 +30,5 @@ nebius_key.txt
 target_ip.txt
 **/target_ip.txt
 **/target_ip.txt.meta
+Assets/_Recovery/
+Assets/_Recovery.meta
