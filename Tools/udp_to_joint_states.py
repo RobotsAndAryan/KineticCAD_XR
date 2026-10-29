@@ -14,6 +14,7 @@ Modes:
 import argparse
 import json
 import math
+import re
 import socket
 import sys
 import time
@@ -32,6 +33,56 @@ JOINT_NAMES = [
     "shoulder_pitch_joint",
     "elbow_pitch_joint",
 ]
+
+
+def parse_telemetry_payload(data: bytes) -> dict:
+    """
+    Robustly parse incoming UDP joint telemetry, with automatic repair for
+    empty or malformed fields and regex fallback.
+    """
+    text = data.decode("utf-8", errors="replace").strip()
+    text = text.rstrip("\x00 \t\r\n")
+
+    # 1. Direct standard JSON parse
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    # 2. Auto-repair malformed patterns (empty mu field, trailing commas, non-standard NaN/Infinity)
+    repaired = re.sub(r'"mu"\s*:\s*(?=[,}])', '"mu": 0.001', text)
+    repaired = re.sub(r'"mu"\s*:\s*NaN', '"mu": 0.001', repaired)
+    repaired = re.sub(r'"mu"\s*:\s*Infinity', '"mu": 1.0', repaired)
+    try:
+        return json.loads(repaired)
+    except Exception:
+        pass
+
+    # 3. Resilient regex extractor fallback
+    m_robot = re.search(r'"robot"\s*:\s*"([^"]+)"', text)
+    m_q = re.search(r'"q"\s*:\s*\[([^\]]+)\]', text)
+    m_mu = re.search(r'"mu"\s*:\s*([-\d.eE+]+)', text)
+
+    robot = m_robot.group(1) if m_robot else "kinetic_claw"
+    q = [0.0, 0.0, 0.0]
+    if m_q:
+        parts = m_q.group(1).split(",")
+        parsed_q = []
+        for p in parts[:3]:
+            try:
+                parsed_q.append(float(p.strip()))
+            except Exception:
+                parsed_q.append(0.0)
+        q = parsed_q
+
+    mu = 0.001
+    if m_mu:
+        try:
+            mu = float(m_mu.group(1))
+        except Exception:
+            mu = 0.001
+
+    return {"robot": robot, "q": q, "mu": mu}
 
 
 def run_ros2_node(udp_host: str, udp_port: int):
@@ -71,7 +122,7 @@ def run_ros2_node(udp_host: str, udp_port: int):
                 return
 
             try:
-                payload = json.loads(latest_data.decode("utf-8"))
+                payload = parse_telemetry_payload(latest_data)
                 q = payload.get("q", [0.0, 0.0, 0.0])
                 if len(q) < 3:
                     q = list(q) + [0.0] * (3 - len(q))
@@ -141,7 +192,7 @@ def run_standalone_telemetry_console(udp_host: str, udp_port: int):
             last_print = now
 
             try:
-                payload = json.loads(data.decode("utf-8"))
+                payload = parse_telemetry_payload(data)
                 robot = payload.get("robot", "kinetic_claw")
                 q = payload.get("q", [0.0, 0.0, 0.0])
                 mu = float(payload.get("mu", 0.0))
@@ -157,7 +208,7 @@ def run_standalone_telemetry_console(udp_host: str, udp_port: int):
                 )
                 sys.stdout.flush()
             except Exception as exc:
-                print(f"\n[WARN] Malformed packet: {exc}")
+                print(f"\n[WARN] Malformed packet: {exc} | Raw: {repr(data)}")
     except KeyboardInterrupt:
         print("\n[KineticCAD Telemetry Bridge] Stopped cleanly.")
     finally:

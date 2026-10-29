@@ -70,15 +70,19 @@ namespace KineticCore.Export
             if (_accumulator > interval) _accumulator = 0f;
 
             double[] q = Controller.JointAngles;
+            double mu = Controller.CurrentManipulability;
+            if (double.IsNaN(mu) || double.IsInfinity(mu) || mu <= 0.0)
+                mu = 1e-4;
+
             CultureInfo inv = CultureInfo.InvariantCulture;
             string payload = string.Format(
                 inv,
-                "{{\"robot\":\"{0}\",\"q\":[{1:F5},{2:F5},{3:F5}],\"mu\":{4:E3}}}",
+                "{{\"robot\":\"{0}\",\"q\":[{1:F5},{2:F5},{3:F5}],\"mu\":{4:F6}}}",
                 Controller.CurrentSpec != null ? Controller.CurrentSpec.robotName : "kinetic_claw",
                 q.Length > 0 ? q[0] : 0.0,
                 q.Length > 1 ? q[1] : 0.0,
                 q.Length > 2 ? q[2] : 0.0,
-                Controller.CurrentManipulability
+                mu
             );
 
             byte[] bytes = Encoding.UTF8.GetBytes(payload);

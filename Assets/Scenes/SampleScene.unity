@@ -499,7 +499,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::KineticCore.Export.UdpJointStateBroadcaster
   Controller: {fileID: 775951367}
-  TargetIp: 192.168.1.131
+  TargetIp: 192.168.1.80
   TargetPort: 9870
   BroadcastHz: 60
 --- !u!114 &775951367
