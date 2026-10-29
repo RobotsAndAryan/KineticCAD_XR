@@ -6,7 +6,7 @@ Listens on UDP 0.0.0.0:9870 for 60 Hz JSON packets from Meta Quest 3 / Unity Edi
 
 Modes:
   1. ROS 2 Mode (automatic if `rclpy` is installed):
-     Publishes `/joint_states` (sensor_msgs/msg/JointState) & `/cmd_vel` (geometry_msgs/msg/Twist).
+     Publishes `/joint_states` (sensor_msgs/msg/JointState) mapped to robot links.
   2. Standalone Telemetry Console Mode (automatic fallback on Windows / macOS / Linux without ROS 2):
      Renders a live high-contrast 60 Hz telemetry dashboard in the terminal for live demos and Isaac Sim socket piping.
 """
@@ -22,7 +22,6 @@ try:
     import rclpy
     from rclpy.node import Node
     from sensor_msgs.msg import JointState
-    from geometry_msgs.msg import Twist
     HAS_ROS2 = True
 except ImportError:
     HAS_ROS2 = False
@@ -40,7 +39,6 @@ def run_ros2_node(udp_host: str, udp_port: int):
         def __init__(self):
             super().__init__("kinetic_cad_udp_bridge")
             self.joint_pub = self.create_publisher(JointState, "/joint_states", 10)
-            self.twist_pub = self.create_publisher(Twist, "/cmd_vel", 10)
 
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -50,7 +48,7 @@ def run_ros2_node(udp_host: str, udp_port: int):
             self.packet_count = 0
             self.timer = self.create_timer(1.0 / 120.0, self.poll_udp)
             self.get_logger().info(
-                f"KineticCAD ROS 2 Bridge listening on UDP {udp_host}:{udp_port} -> /joint_states & /cmd_vel"
+                f"KineticCAD ROS 2 Bridge listening on UDP {udp_host}:{udp_port} -> /joint_states"
             )
 
         def poll_udp(self):
@@ -82,11 +80,6 @@ def run_ros2_node(udp_host: str, udp_port: int):
                 js.name = JOINT_NAMES
                 js.position = [float(q[0]), float(q[1]), float(q[2])]
                 self.joint_pub.publish(js)
-
-                tw = Twist()
-                tw.linear.x = float(q[1]) * 0.5
-                tw.angular.z = float(q[0]) * 1.0
-                self.twist_pub.publish(tw)
 
                 self.packet_count += 1
                 if self.packet_count % 60 == 1:

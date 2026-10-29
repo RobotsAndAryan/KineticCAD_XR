@@ -48,6 +48,8 @@ namespace KineticCore.Runtime
         public string LastExportedUrdfPath { get; private set; } = "Press [U] / EXPORT URDF";
         public string StatusMessage { get; private set; } = "Ready";
         public string ActiveNebiusModel { get; private set; } = "offline-parametric";
+        public string LastSpecSource { get; private set; } = "parametric (init)";
+        public bool LastSpecFromAi { get; private set; } = false;
         public long LastApiLatencyMs { get; private set; } = 0;
         public string EngineeringAuditReport { get; private set; } = "Mobility M=3 DoF | Non-Singular | Ready";
         public bool IsFlatEditorMode => Application.isEditor && _flatCamera != null;
@@ -686,10 +688,10 @@ namespace KineticCore.Runtime
                 }
             }
 
-            GUI.Box(new Rect(12, 12, 505, 224), "");
-            GUILayout.BeginArea(new Rect(20, 18, 488, 212));
+            GUI.Box(new Rect(12, 12, 515, 228), "");
+            GUILayout.BeginArea(new Rect(20, 18, 498, 216));
             GUILayout.Label($"<b>KINETIC-CAD XR | NVIDIA NEMOTRON x NEBIUS PHYSICAL AI</b>  ({ManualTestWidthMm:F0} mm)");
-            GUILayout.Label($"AI Engine: {ActiveNebiusModel} ({LastApiLatencyMs} ms) | μ = {CurrentManipulability:E2} | UDP: 60Hz :9870");
+            GUILayout.Label($"Engine: {ActiveNebiusModel} ({LastApiLatencyMs} ms) | {(LastSpecFromAi ? "<color=#20FF60>[AI Spec ✓]</color>" : "<color=#FFB020>[Parametric Fallback]</color>")} | μ = {CurrentManipulability:E2}");
             GUILayout.Label($"Audit: {EngineeringAuditReport}");
             GUILayout.Label($"Status: {StatusMessage}");
 
@@ -722,9 +724,10 @@ namespace KineticCore.Runtime
         private void UpdateVrHologramText()
         {
             if (_vrHologramText == null || _theta == null || _theta.Length < 3) return;
+            string specTag = LastSpecFromAi ? "[AI Spec ✓]" : "[Parametric]";
             _vrHologramText.text =
-                $"KINETIC-CAD XR | NVIDIA NEMOTRON x NEBIUS (Object: {ManualTestWidthMm:F0}mm)  {(PuppetActive ? "LIVE PUPPET" : "LOCKED")}\n" +
-                $"AI Model: {ActiveNebiusModel} ({LastApiLatencyMs}ms) | Telemetry: 60Hz UDP :9870\n" +
+                $"KINETIC-CAD XR | NVIDIA NEMOTRON ({ManualTestWidthMm:F0}mm)  {(PuppetActive ? "LIVE PUPPET" : "LOCKED")}\n" +
+                $"Model: {ActiveNebiusModel} ({LastApiLatencyMs}ms) {specTag} | 60Hz UDP :9870\n" +
                 $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}°\n" +
                 $"μ={CurrentManipulability:E2} | {EngineeringAuditReport}\n" +
                 $"{StatusMessage}";
@@ -744,10 +747,13 @@ namespace KineticCore.Runtime
                 MechanismSpec spec = await synth.SynthesizeMechanismAsync(widthMm, UserIntentPrompt);
                 if (this == null) return;
                 ActiveNebiusModel = synth.LastModelUsed;
+                LastSpecSource = synth.LastSpecSource;
+                LastSpecFromAi = synth.LastSpecFromAi;
                 LastApiLatencyMs = synth.LastLatencyMs;
                 ApplyMechanismSpec(spec);
                 _spawnAnimTimer = 1.0f;
-                StatusMessage = $"FAST SYNTH: Spawned '{spec.robotName}' ({widthMm:F0}mm, {LastApiLatencyMs}ms)";
+                string tag = LastSpecFromAi ? "AI spec" : "parametric fallback";
+                StatusMessage = $"FAST SYNTH: Spawned '{spec.robotName}' ({tag}, {LastApiLatencyMs}ms)";
                 WriteDiagnosticState("SynthesizeFast");
             }
             catch (Exception ex)
