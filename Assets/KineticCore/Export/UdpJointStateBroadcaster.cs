@@ -13,20 +13,42 @@ namespace KineticCore.Export
     public class UdpJointStateBroadcaster : MonoBehaviour
     {
         public KineticMechanismController Controller;
-        public string TargetIp = "192.168.1.131"; // Ubuntu ROS 2 Jazzy Laptop IP
+        public string TargetIp = "192.168.1.80"; // Local Host PC IP
         public int TargetPort = 9870;
         public float BroadcastHz = 60.0f;
 
         private UdpClient _udpClient;
         private float _accumulator = 0f;
+        private readonly string[] _broadcastDestinations = new string[]
+        {
+            "192.168.1.80",
+            "192.168.1.255",
+            "255.255.255.255",
+            "127.0.0.1",
+            "192.168.1.131"
+        };
 
         private void Start()
         {
             _udpClient = new UdpClient();
+            try { _udpClient.EnableBroadcast = true; } catch { }
+
             if (Controller == null)
                 Controller = GetComponent<KineticMechanismController>();
 
-            // Allow overriding TargetIp on Quest 3 via persistentDataPath/target_ip.txt
+            // 1. Check Resources/target_ip.txt (bundled into Quest APK)
+            try
+            {
+                TextAsset resIp = Resources.Load<TextAsset>("target_ip");
+                if (resIp != null && !string.IsNullOrEmpty(resIp.text))
+                {
+                    string trimmed = resIp.text.Trim();
+                    if (!string.IsNullOrEmpty(trimmed)) TargetIp = trimmed;
+                }
+            }
+            catch { }
+
+            // 2. Allow overriding TargetIp on Quest 3 via persistentDataPath/target_ip.txt
             string ipFile = Path.Combine(Application.persistentDataPath, "target_ip.txt");
             if (File.Exists(ipFile))
             {
@@ -34,7 +56,7 @@ namespace KineticCore.Export
                 if (!string.IsNullOrEmpty(customIp))
                     TargetIp = customIp;
             }
-            Debug.Log($"[KineticCAD UDP] Streaming 60Hz joint states to {TargetIp}:{TargetPort}");
+            Debug.Log($"[KineticCAD UDP] Streaming 60Hz joint states to {TargetIp}:{TargetPort} + Subnet Broadcast");
         }
 
         private void Update()
@@ -60,16 +82,18 @@ namespace KineticCore.Export
             );
 
             byte[] bytes = Encoding.UTF8.GetBytes(payload);
-            try
+
+            // Send to TargetIp first
+            try { _udpClient.Send(bytes, bytes.Length, TargetIp, TargetPort); } catch { }
+
+            // Also broadcast so any PC on the LAN running the Python bridge receives telemetry without IP configuration
+            for (int i = 0; i < _broadcastDestinations.Length; i++)
             {
-                _udpClient.Send(bytes, bytes.Length, TargetIp, TargetPort);
-                if (TargetIp != "127.0.0.1" && TargetIp != "localhost")
+                string dest = _broadcastDestinations[i];
+                if (dest != TargetIp)
                 {
-                    _udpClient.Send(bytes, bytes.Length, "127.0.0.1", TargetPort);
+                    try { _udpClient.Send(bytes, bytes.Length, dest, TargetPort); } catch { }
                 }
-            }
-            catch
-            {
             }
         }
 

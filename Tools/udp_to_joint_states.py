@@ -42,6 +42,10 @@ def run_ros2_node(udp_host: str, udp_port: int):
 
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            except Exception:
+                pass
             self.sock.bind((udp_host, udp_port))
             self.sock.setblocking(False)
 
@@ -106,6 +110,10 @@ def run_ros2_node(udp_host: str, udp_port: int):
 def run_standalone_telemetry_console(udp_host: str, udp_port: int):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    except Exception:
+        pass
     sock.bind((udp_host, udp_port))
     sock.settimeout(0.25)
 
