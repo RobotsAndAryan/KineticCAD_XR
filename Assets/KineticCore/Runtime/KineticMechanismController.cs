@@ -77,16 +77,33 @@ namespace KineticCore.Runtime
         private Renderer[] _linkRenderers;
         private Renderer[] _pinRenderers;
         private Transform _eeMarker;
+        private Transform _leftJawFinger;
+        private Transform _rightJawFinger;
         private Renderer _targetRenderer;
         private Transform _sampleWorkpiece;
+        private Renderer _workpieceRenderer;
+        private Transform _dropZonePad;
+        private Renderer _dropZoneRenderer;
+        private TextMesh _dropZoneLabel;
         private Transform _vrHudTransform;
         private TextMesh _vrHologramText;
+        private Transform _urdfInspectorTransform;
+        private TextMesh _urdfInspectorText;
         private TextMesh _workpieceLabel;
         private Camera _headCamera;
         private MaterialPropertyBlock _mpb;
         private bool _hasCenteredToHmd = false;
         private bool _mrukTableLocked = false;
         private float _vrStartupTimer = 0f;
+
+        // Interactive Pick-and-Place state
+        public int CompletedGraspCount { get; private set; } = 0;
+        private bool _isHoldingWorkpiece = false;
+        private float _jawCloseFactor = 0f;
+        private float _graspCooldownTimer = 0f;
+        private float _dropZoneFlashTimer = 0f;
+        private static readonly Vector3 WorkpieceHomeLocalPos = new Vector3(-0.13f, 0.008f, 0.04f);
+        private static readonly Vector3 DropZoneLocalPos = new Vector3(0.22f, 0.001f, 0.04f);
 
         // Visual feedback timers for button actions
         private float _spawnAnimTimer = 0f;
@@ -489,12 +506,29 @@ namespace KineticCore.Runtime
             Destroy(wp.GetComponent<Collider>());
             wp.transform.SetParent(DeskWorkspaceOrigin, false);
             _sampleWorkpiece = wp.transform;
-            SetColorSafe(wp.GetComponent<Renderer>(), new Color(0.18f, 0.55f, 0.72f));
+            _workpieceRenderer = wp.GetComponent<Renderer>();
+            SetColorSafe(_workpieceRenderer, new Color(0.18f, 0.55f, 0.72f));
 
             _workpieceLabel = WorldTextFactory.Create(
                 "Workpiece_SizeLabel", DeskWorkspaceOrigin,
-                new Vector3(-0.13f, 0.028f, 0.04f), Quaternion.Euler(35f, 0f, 0f),
-                0.0016f, 34, new Color(0.55f, 0.92f, 1.0f), $"TARGET OBJECT\n{ManualTestWidthMm:F0} mm");
+                new Vector3(-0.13f, 0.032f, 0.04f), Quaternion.Euler(35f, 0f, 0f),
+                0.0016f, 34, new Color(0.55f, 0.92f, 1.0f), $"PICKUP WORKPIECE\n{ManualTestWidthMm:F0} mm");
+
+            // Create interactive Pick-and-Place Target Drop Zone Pad on the right side of the desk
+            GameObject dz = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            dz.name = "DropZone_TargetPad";
+            Destroy(dz.GetComponent<Collider>());
+            dz.transform.SetParent(DeskWorkspaceOrigin, false);
+            dz.transform.localPosition = DropZoneLocalPos;
+            dz.transform.localScale = new Vector3(0.088f, 0.0018f, 0.088f);
+            _dropZonePad = dz.transform;
+            _dropZoneRenderer = dz.GetComponent<Renderer>();
+            SetColorSafe(_dropZoneRenderer, new Color(0.12f, 0.65f, 0.42f));
+
+            _dropZoneLabel = WorldTextFactory.Create(
+                "DropZone_Label", DeskWorkspaceOrigin,
+                DropZoneLocalPos + new Vector3(0f, 0.025f, 0f), Quaternion.Euler(35f, 0f, 0f),
+                0.0015f, 32, new Color(0.35f, 1.0f, 0.65f), "DROP ZONE\nGrasps: 0");
 
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
         }
@@ -503,11 +537,14 @@ namespace KineticCore.Runtime
         {
             if (_sampleWorkpiece == null) return;
             float wMeters = Mathf.Clamp((float)(widthMm * 0.001), 0.02f, 0.25f);
-            _sampleWorkpiece.localPosition = new Vector3(-0.13f, 0.006f, 0.04f);
-            _sampleWorkpiece.localScale = new Vector3(wMeters, 0.010f, 0.024f);
+            if (!_isHoldingWorkpiece)
+                _sampleWorkpiece.localPosition = WorkpieceHomeLocalPos;
+            _sampleWorkpiece.localScale = new Vector3(wMeters, 0.014f, 0.024f);
             if (_workpieceLabel != null)
             {
-                _workpieceLabel.text = $"TARGET OBJECT\n{widthMm:F0} mm";
+                _workpieceLabel.text = _isHoldingWorkpiece
+                    ? $"GRASPED ({widthMm:F0} mm)\nMove to Drop Zone ->"
+                    : $"PICKUP WORKPIECE\n{widthMm:F0} mm";
             }
         }
 
@@ -515,10 +552,18 @@ namespace KineticCore.Runtime
         {
             TextMesh tm = WorldTextFactory.Create(
                 "VR_3D_Hologram_HUD", DeskWorkspaceOrigin,
-                new Vector3(0.08f, 0.24f, 0.08f), Quaternion.identity,
+                new Vector3(0.05f, 0.24f, 0.08f), Quaternion.identity,
                 0.0020f, 36, new Color(0.15f, 0.95f, 1.0f), "KineticCAD Physical AI Active");
             _vrHologramText = tm;
             _vrHudTransform = tm.transform;
+
+            // Create secondary 3D URDF & Live 60Hz Telemetry Inspector Panel for standalone headset testing
+            TextMesh urdfTm = WorldTextFactory.Create(
+                "VR_3D_URDF_Inspector_HUD", DeskWorkspaceOrigin,
+                new Vector3(0.30f, 0.18f, 0.06f), Quaternion.Euler(0f, -18f, 0f),
+                0.00145f, 32, new Color(0.45f, 1.0f, 0.70f), "ROS 2 / Isaac Sim URDF Inspector");
+            _urdfInspectorText = urdfTm;
+            _urdfInspectorTransform = urdfTm.transform;
         }
 
         [Preserve]
@@ -725,12 +770,33 @@ namespace KineticCore.Runtime
         {
             if (_vrHologramText == null || _theta == null || _theta.Length < 3) return;
             string specTag = LastSpecFromAi ? "[AI Spec ✓]" : "[Parametric]";
+            string graspState = _isHoldingWorkpiece ? "GRASPING OBJECT" : $"Grasps: {CompletedGraspCount}";
             _vrHologramText.text =
-                $"KINETIC-CAD XR | NVIDIA NEMOTRON ({ManualTestWidthMm:F0}mm)  {(PuppetActive ? "LIVE PUPPET" : "LOCKED")}\n" +
+                $"KINETIC-CAD XR | NVIDIA NEMOTRON ({ManualTestWidthMm:F0}mm)  [{graspState}]\n" +
                 $"Model: {ActiveNebiusModel} ({LastApiLatencyMs}ms) {specTag} | 60Hz UDP :9870\n" +
                 $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}°\n" +
                 $"μ={CurrentManipulability:E2} | {EngineeringAuditReport}\n" +
                 $"{StatusMessage}";
+
+            if (_urdfInspectorText != null && CurrentSpec != null)
+            {
+                if (_urdfInspectorTransform != null && _headCamera != null)
+                {
+                    Vector3 toInsp = _urdfInspectorTransform.position - _headCamera.transform.position;
+                    if (toInsp.sqrMagnitude > 0.001f)
+                        _urdfInspectorTransform.rotation = Quaternion.LookRotation(toInsp.normalized, Vector3.up);
+                }
+
+                string rName = CurrentSpec.robotName ?? "kinetic_claw";
+                double l1 = (CurrentSpec.links != null && CurrentSpec.links.Length > 1) ? CurrentSpec.links[1].lengthM : 0.14;
+                double l2 = (CurrentSpec.links != null && CurrentSpec.links.Length > 2) ? CurrentSpec.links[2].lengthM : 0.11;
+                _urdfInspectorText.text =
+                    $"=== ROS 2 / ISAAC SIM INSPECTOR ===\n" +
+                    $"<robot name=\"{rName}\"> (REP-103)\n" +
+                    $"  Links: L1={l1 * 1000:F0}mm, L2={l2 * 1000:F0}mm, Jaw={ManualTestWidthMm:F0}mm\n" +
+                    $"  UDP :9870 -> {{\"q\":[{_theta[0]:F2},{_theta[1]:F2},{_theta[2]:F2}],\"mu\":{CurrentManipulability:F4}}}\n" +
+                    $"  Pick-and-Place: {(_isHoldingWorkpiece ? "CARRYING -> Move to Drop Zone" : $"Ready ({CompletedGraspCount} placed)")}";
+            }
         }
 
         // ------------------------------------------------------------------ Synthesis / audit / export
@@ -916,9 +982,35 @@ namespace KineticCore.Runtime
             tip.name = "EndEffector_Green";
             Destroy(tip.GetComponent<Collider>());
             tip.transform.SetParent(_mechanismRoot.transform, false);
-            tip.transform.localScale = Vector3.one * 0.024f;
+            tip.transform.localScale = Vector3.one * 0.022f;
             SetColorSafe(tip.GetComponent<Renderer>(), new Color(0.2f, 1.0f, 0.4f));
             _eeMarker = tip.transform;
+
+            // Articulated Parallel Jaw Gripper Assembly scaled to measured caliper width
+            float jawSpanM = Mathf.Clamp((float)(spec.targetCaliperWidthMm * 0.001), 0.024f, 0.22f);
+            GameObject crossbar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            crossbar.name = "Gripper_CrossbarBracket";
+            Destroy(crossbar.GetComponent<Collider>());
+            crossbar.transform.SetParent(_eeMarker, false);
+            crossbar.transform.localPosition = new Vector3(0f, 0f, 0f);
+            crossbar.transform.localScale = new Vector3(0.45f, 0.35f, (jawSpanM + 0.016f) / 0.022f);
+            SetColorSafe(crossbar.GetComponent<Renderer>(), new Color(0.22f, 0.28f, 0.36f));
+
+            GameObject leftJaw = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            leftJaw.name = "Gripper_LeftJawFinger";
+            Destroy(leftJaw.GetComponent<Collider>());
+            leftJaw.transform.SetParent(_eeMarker, false);
+            leftJaw.transform.localScale = new Vector3(1.35f, 0.55f, 0.28f);
+            SetColorSafe(leftJaw.GetComponent<Renderer>(), new Color(0.15f, 0.95f, 0.55f));
+            _leftJawFinger = leftJaw.transform;
+
+            GameObject rightJaw = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            rightJaw.name = "Gripper_RightJawFinger";
+            Destroy(rightJaw.GetComponent<Collider>());
+            rightJaw.transform.SetParent(_eeMarker, false);
+            rightJaw.transform.localScale = new Vector3(1.35f, 0.55f, 0.28f);
+            SetColorSafe(rightJaw.GetComponent<Renderer>(), new Color(0.15f, 0.95f, 0.55f));
+            _rightJawFinger = rightJaw.transform;
         }
 
         private void UpdateVisualLinksFromPoE()
@@ -933,17 +1025,104 @@ namespace KineticCore.Runtime
             else if (_exportFlashTimer > 0f)
                 linkColor = ExportGreen;
 
+            Quaternion lastRot = Quaternion.identity;
             for (int i = 0; i < jointTransforms.Length && i < _jointPivots.Length; i++)
             {
                 Vec3 pos = jointTransforms[i].GetTranslation();
                 jointTransforms[i].ToQuaternion(out double qx, out double qy, out double qz, out double qw);
                 _jointPivots[i].localPosition = new Vector3((float)pos.X, (float)pos.Y, (float)pos.Z);
-                _jointPivots[i].localRotation = new Quaternion((float)qx, (float)qy, (float)qz, (float)qw);
+                lastRot = new Quaternion((float)qx, (float)qy, (float)qz, (float)qw);
+                _jointPivots[i].localRotation = lastRot;
                 if (_linkRenderers[i] != null)
                     SetColorSafe(_linkRenderers[i], linkColor);
             }
             if (_eeMarker != null)
+            {
                 _eeMarker.localPosition = new Vector3((float)CurrentEndEffectorPos.X, (float)CurrentEndEffectorPos.Y, (float)CurrentEndEffectorPos.Z);
+                _eeMarker.localRotation = lastRot;
+                UpdateInteractivePickAndPlace();
+            }
+        }
+
+        private void UpdateInteractivePickAndPlace()
+        {
+            if (_eeMarker == null || _sampleWorkpiece == null) return;
+
+            if (_graspCooldownTimer > 0f)
+                _graspCooldownTimer = Mathf.Max(0f, _graspCooldownTimer - Time.deltaTime);
+
+            if (_dropZoneFlashTimer > 0f)
+            {
+                _dropZoneFlashTimer = Mathf.Max(0f, _dropZoneFlashTimer - Time.deltaTime);
+                if (_dropZoneRenderer != null)
+                    SetColorSafe(_dropZoneRenderer, _dropZoneFlashTimer > 0.05f ? ExportGreen : new Color(0.12f, 0.65f, 0.42f));
+            }
+
+            Vector3 eeLocal = DeskWorkspaceOrigin.InverseTransformPoint(_eeMarker.position);
+
+            if (!_isHoldingWorkpiece)
+            {
+                float distToWp = Vector3.Distance(eeLocal, _sampleWorkpiece.localPosition);
+                if (distToWp < 0.058f && _graspCooldownTimer <= 0f && !AutoOrbitTarget)
+                {
+                    _isHoldingWorkpiece = true;
+                    SpatialTactileAudio.Instance?.PlayCaliperLock(_eeMarker.position);
+                    if (_workpieceRenderer != null)
+                        SetColorSafe(_workpieceRenderer, new Color(0.25f, 1.0f, 0.55f));
+                    if (_workpieceLabel != null)
+                        _workpieceLabel.text = $"GRASPED ({ManualTestWidthMm:F0} mm)\nMove to Drop Zone ->";
+                    StatusMessage = $"GRASP LOCKED -> Guide workpiece to green Drop Zone pad!";
+                }
+            }
+            else
+            {
+                // Carry workpiece inside parallel gripper jaws
+                _sampleWorkpiece.position = _eeMarker.position + _eeMarker.right * 0.014f;
+                _sampleWorkpiece.rotation = _eeMarker.rotation;
+
+                if (_workpieceLabel != null)
+                    _workpieceLabel.transform.localPosition = DeskWorkspaceOrigin.InverseTransformPoint(_sampleWorkpiece.position) + new Vector3(0f, 0.026f, 0f);
+
+                float distToDrop = Vector2.Distance(
+                    new Vector2(eeLocal.x, eeLocal.z),
+                    new Vector2(DropZoneLocalPos.x, DropZoneLocalPos.z));
+
+                if (distToDrop < 0.068f && eeLocal.y < 0.085f)
+                {
+                    _isHoldingWorkpiece = false;
+                    _graspCooldownTimer = 1.4f;
+                    _dropZoneFlashTimer = 0.9f;
+                    CompletedGraspCount++;
+                    SpatialTactileAudio.Instance?.PlayExportSuccess();
+
+                    _sampleWorkpiece.localPosition = WorkpieceHomeLocalPos;
+                    _sampleWorkpiece.localRotation = Quaternion.identity;
+                    if (_workpieceRenderer != null)
+                        SetColorSafe(_workpieceRenderer, new Color(0.18f, 0.55f, 0.72f));
+                    if (_workpieceLabel != null)
+                    {
+                        _workpieceLabel.transform.localPosition = new Vector3(-0.13f, 0.032f, 0.04f);
+                        _workpieceLabel.text = $"PICKUP WORKPIECE\n{ManualTestWidthMm:F0} mm";
+                    }
+                    if (_dropZoneLabel != null)
+                        _dropZoneLabel.text = $"DROP ZONE\nGrasps: {CompletedGraspCount}";
+
+                    StatusMessage = $"PICK & PLACE COMPLETE (#{CompletedGraspCount}) -> Workpiece delivered!";
+                }
+            }
+
+            // Animate parallel jaw fingers opening/closing
+            float targetClose = _isHoldingWorkpiece ? 1.0f : 0.0f;
+            _jawCloseFactor = Mathf.MoveTowards(_jawCloseFactor, targetClose, Time.deltaTime * 6.5f);
+            if (_leftJawFinger != null && _rightJawFinger != null)
+            {
+                float jawSpanM = Mathf.Clamp((float)(ManualTestWidthMm * 0.001), 0.024f, 0.22f);
+                float openHalfLocal = (jawSpanM * 0.56f) / 0.022f;
+                float closedHalfLocal = (jawSpanM * 0.36f) / 0.022f;
+                float zOffset = Mathf.Lerp(openHalfLocal, closedHalfLocal, _jawCloseFactor);
+                _leftJawFinger.localPosition = new Vector3(0.65f, 0f, -zOffset);
+                _rightJawFinger.localPosition = new Vector3(0.65f, 0f, zOffset);
+            }
         }
 
         private static Material _sharedSolidLitMaterial;
