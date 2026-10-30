@@ -30,6 +30,7 @@ public class CaliperController : MonoBehaviour
     private XRHandSubsystem _handSubsystem;
     private double _anchorWidthMm = 70.0;
     private double _lastSynthesizedWidthMm = -100.0;
+    private int _lastTickBucket = -1;
     private float _stableTimer = 0f;
     private float _lastAutoSynthTime = -10f;
     private bool _wasStableLastFrame = false;
@@ -288,7 +289,19 @@ public class CaliperController : MonoBehaviour
 
         if (MechanismController != null && CaliperWidthMm >= 15.0 && CaliperWidthMm <= 320.0)
         {
+            int bucket = Mathf.RoundToInt((float)(CaliperWidthMm / 5.0));
+            if (bucket != _lastTickBucket && _lastTickBucket >= 0 && !IsStable)
+            {
+                SpatialTactileAudio.Instance?.PlayCaliperTick();
+            }
+            _lastTickBucket = bucket;
+
             bool justLocked = IsStable && !_wasStableLastFrame;
+            if (justLocked)
+            {
+                SpatialTactileAudio.Instance?.PlayCaliperLock();
+            }
+
             bool significantChange = System.Math.Abs(CaliperWidthMm - _lastSynthesizedWidthMm) > 10.0;
             bool cooldownReady = (Time.unscaledTime - _lastAutoSynthTime) > 3.5f;
 

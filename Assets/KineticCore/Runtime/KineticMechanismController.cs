@@ -817,6 +817,7 @@ namespace KineticCore.Runtime
                     catch { }
                 }
                 _exportFlashTimer = 0.8f; // Flash robot links bright emerald green to confirm URDF export!
+                SpatialTactileAudio.Instance?.PlayExportSuccess();
                 StatusMessage = $"URDF EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} (ROS 2 & Isaac Sim Ready)";
                 Debug.Log($"[KineticCAD] URDF Exported to: {LastExportedUrdfPath}");
                 WriteDiagnosticState("ExportUrdf");
@@ -841,6 +842,7 @@ namespace KineticCore.Runtime
             CurrentManipulability = ReferenceManipulability;
             CurrentEndEffectorPos = CurrentChain.EndEffectorPosition(_theta);
             UpdateVisualLinksFromPoE();
+            SpatialTactileAudio.Instance?.PlaySynthChime();
         }
 
         // ------------------------------------------------------------------ Visuals
