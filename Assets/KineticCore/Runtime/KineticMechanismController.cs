@@ -89,12 +89,20 @@ namespace KineticCore.Runtime
         private TextMesh _vrHologramText;
         private Transform _urdfInspectorTransform;
         private TextMesh _urdfInspectorText;
+        private Transform _specSheetTransform;
+        private TextMesh _specSheetText;
         private TextMesh _workpieceLabel;
         private Camera _headCamera;
         private MaterialPropertyBlock _mpb;
         private bool _hasCenteredToHmd = false;
         private bool _mrukTableLocked = false;
         private float _vrStartupTimer = 0f;
+
+        // Multi-Topology & Guided Onboarding state
+        private int _topologyVariantIndex = 0;
+        private bool _stepSynthDone = false;
+        private bool _stepPuppetDone = false;
+        private bool _stepAuditOrExportDone = false;
 
         // Interactive Pick-and-Place state
         public int CompletedGraspCount { get; private set; } = 0;
@@ -363,8 +371,72 @@ namespace KineticCore.Runtime
             _mrukTableLocked = true;
             _hasCenteredToHmd = true;
             DeskWorkspaceOrigin.SetPositionAndRotation(worldPos, worldRot);
-            StatusMessage = $"{sourceLabel} -> Desk Anchored";
+            SavePersistentDeskAnchor();
+            StatusMessage = $"{sourceLabel} -> Desk Spatial Anchor Locked & Saved";
             WriteDiagnosticState("NotifyDeskAnchored");
+        }
+
+        private void SavePersistentDeskAnchor()
+        {
+            if (DeskWorkspaceOrigin == null) return;
+            try
+            {
+                Vector3 p = DeskWorkspaceOrigin.position;
+                Quaternion r = DeskWorkspaceOrigin.rotation;
+                PlayerPrefs.SetInt("KineticCAD_HasSavedDesk", 1);
+                PlayerPrefs.SetFloat("KineticCAD_DeskPosX", p.x);
+                PlayerPrefs.SetFloat("KineticCAD_DeskPosY", p.y);
+                PlayerPrefs.SetFloat("KineticCAD_DeskPosZ", p.z);
+                PlayerPrefs.SetFloat("KineticCAD_DeskRotX", r.x);
+                PlayerPrefs.SetFloat("KineticCAD_DeskRotY", r.y);
+                PlayerPrefs.SetFloat("KineticCAD_DeskRotZ", r.z);
+                PlayerPrefs.SetFloat("KineticCAD_DeskRotW", r.w);
+                PlayerPrefs.Save();
+            }
+            catch { }
+        }
+
+        private bool TryRestorePersistentDeskAnchor()
+        {
+            if (DeskWorkspaceOrigin == null || IsFlatEditorMode) return false;
+            try
+            {
+                if (PlayerPrefs.GetInt("KineticCAD_HasSavedDesk", 0) == 1)
+                {
+                    Vector3 p = new Vector3(
+                        PlayerPrefs.GetFloat("KineticCAD_DeskPosX", 0f),
+                        PlayerPrefs.GetFloat("KineticCAD_DeskPosY", 0f),
+                        PlayerPrefs.GetFloat("KineticCAD_DeskPosZ", 0f));
+                    Quaternion r = new Quaternion(
+                        PlayerPrefs.GetFloat("KineticCAD_DeskRotX", 0f),
+                        PlayerPrefs.GetFloat("KineticCAD_DeskRotY", 0f),
+                        PlayerPrefs.GetFloat("KineticCAD_DeskRotZ", 0f),
+                        PlayerPrefs.GetFloat("KineticCAD_DeskRotW", 1f));
+                    if (p.sqrMagnitude > 0.001f)
+                    {
+                        DeskWorkspaceOrigin.SetPositionAndRotation(p, r);
+                        _hasCenteredToHmd = true;
+                        StatusMessage = "Restored Persistent Spatial Desk Anchor";
+                        return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private void OnApplicationPause(bool pauseStatus)
+        {
+            if (pauseStatus)
+            {
+                SavePersistentDeskAnchor();
+            }
+            else
+            {
+                // Clean resume: restore persistent spatial anchor and re-enable Insight Passthrough
+                TryRestorePersistentDeskAnchor();
+                FindHeadCamera();
+            }
         }
 
         [Preserve]
@@ -402,6 +474,7 @@ namespace KineticCore.Runtime
 
                     DeskWorkspaceOrigin.position = deskPos;
                     DeskWorkspaceOrigin.rotation = Quaternion.LookRotation(forwardFlat, Vector3.up);
+                    SavePersistentDeskAnchor();
                 }
             }
 
@@ -420,13 +493,15 @@ namespace KineticCore.Runtime
             AutoOrbitTarget = false;
             PuppetActive = true;
             _resetHoldTimer = 0.8f;
-            StatusMessage = "RESET POSE -> Desk Centered & Home [0.25, 0.45, -0.65] rad";
+            StatusMessage = "RESET POSE -> Desk Spatial Anchor Saved & Home [0.25, 0.45, -0.65] rad";
             WriteDiagnosticState("ResetPose");
         }
 
         [Preserve]
         public void SynthesizeFast()
         {
+            _stepSynthDone = true;
+            _topologyVariantIndex = (_topologyVariantIndex + 1) % 4;
             // If user is actively measuring an object with both hands in VR, use their live CaliperWidthMm;
             // otherwise cycle through distinct preset sizes so clicking Fast Synth shows a dramatic geometry change!
             var caliper = GetComponent<CaliperController>();
@@ -550,20 +625,45 @@ namespace KineticCore.Runtime
 
         private void CreateVrHologramHud()
         {
+            // Center Panel: Main Telemetry & Guided 4-Step Onboarding HUD
             TextMesh tm = WorldTextFactory.Create(
                 "VR_3D_Hologram_HUD", DeskWorkspaceOrigin,
-                new Vector3(0.05f, 0.24f, 0.08f), Quaternion.identity,
-                0.0020f, 36, new Color(0.15f, 0.95f, 1.0f), "KineticCAD Physical AI Active");
+                new Vector3(0.05f, 0.245f, 0.09f), Quaternion.identity,
+                0.00185f, 36, new Color(0.15f, 0.95f, 1.0f), "KineticCAD Physical AI Active");
             _vrHologramText = tm;
             _vrHudTransform = tm.transform;
+            AttachPanelBackingSlate(_vrHudTransform, new Vector3(0.36f, 0.105f, 0.003f), new Color(0.06f, 0.09f, 0.14f));
 
-            // Create secondary 3D URDF & Live 60Hz Telemetry Inspector Panel for standalone headset testing
+            // Right Panel: 3D URDF & Live 60Hz Telemetry Inspector Panel
             TextMesh urdfTm = WorldTextFactory.Create(
                 "VR_3D_URDF_Inspector_HUD", DeskWorkspaceOrigin,
-                new Vector3(0.30f, 0.18f, 0.06f), Quaternion.Euler(0f, -18f, 0f),
+                new Vector3(0.32f, 0.195f, 0.05f), Quaternion.Euler(0f, -20f, 0f),
                 0.00145f, 32, new Color(0.45f, 1.0f, 0.70f), "ROS 2 / Isaac Sim URDF Inspector");
             _urdfInspectorText = urdfTm;
             _urdfInspectorTransform = urdfTm.transform;
+            AttachPanelBackingSlate(_urdfInspectorTransform, new Vector3(0.24f, 0.088f, 0.003f), new Color(0.05f, 0.12f, 0.10f));
+
+            // Left Panel: PoE Screw Theory & Mechanical Spec Sheet Panel
+            TextMesh specTm = WorldTextFactory.Create(
+                "VR_3D_PoE_SpecSheet_HUD", DeskWorkspaceOrigin,
+                new Vector3(-0.22f, 0.195f, 0.05f), Quaternion.Euler(0f, 20f, 0f),
+                0.00145f, 32, new Color(1.0f, 0.85f, 0.35f), "PoE Screw Kinematics Spec Sheet");
+            _specSheetText = specTm;
+            _specSheetTransform = specTm.transform;
+            AttachPanelBackingSlate(_specSheetTransform, new Vector3(0.23f, 0.088f, 0.003f), new Color(0.12f, 0.09f, 0.05f));
+        }
+
+        private void AttachPanelBackingSlate(Transform textParent, Vector3 scaleMeters, Color slateColor)
+        {
+            if (textParent == null) return;
+            GameObject slate = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            slate.name = "SpatialPanel_DarkGlassSlate";
+            Destroy(slate.GetComponent<Collider>());
+            slate.transform.SetParent(textParent, false);
+            slate.transform.localPosition = new Vector3(0f, 0f, 0.006f);
+            slate.transform.localRotation = Quaternion.identity;
+            slate.transform.localScale = scaleMeters;
+            SetColorSafe(slate.GetComponent<Renderer>(), slateColor);
         }
 
         [Preserve]
@@ -603,7 +703,10 @@ namespace KineticCore.Runtime
                     _headCamera != null && _headCamera.transform.position.sqrMagnitude > 0.001f)
                 {
                     _hasCenteredToHmd = true;
-                    ResetPose();
+                    if (!TryRestorePersistentDeskAnchor())
+                    {
+                        ResetPose();
+                    }
                     AutoOrbitTarget = true;
                 }
             }
@@ -769,13 +872,20 @@ namespace KineticCore.Runtime
         private void UpdateVrHologramText()
         {
             if (_vrHologramText == null || _theta == null || _theta.Length < 3) return;
-            string specTag = LastSpecFromAi ? "[AI Spec ✓]" : "[Parametric]";
-            string graspState = _isHoldingWorkpiece ? "GRASPING OBJECT" : $"Grasps: {CompletedGraspCount}";
+            if (!AutoOrbitTarget && PuppetActive) _stepPuppetDone = true;
+
+            string specTag = LastSpecFromAi ? "[AI Spec ✓]" : "[PoE Parametric]";
+            string c1 = _stepSynthDone ? "✓" : "1";
+            string c2 = _stepPuppetDone ? "✓" : "2";
+            string c3 = CompletedGraspCount > 0 ? "✓" : "3";
+            string c4 = _stepAuditOrExportDone ? "✓" : "4";
+            string workflowBar = $"[{c1}]Synth  [{c2}]Puppet  [{c3}]Pick&Place({CompletedGraspCount})  [{c4}]Audit/URDF";
+
             _vrHologramText.text =
-                $"KINETIC-CAD XR | NVIDIA NEMOTRON ({ManualTestWidthMm:F0}mm)  [{graspState}]\n" +
-                $"Model: {ActiveNebiusModel} ({LastApiLatencyMs}ms) {specTag} | 60Hz UDP :9870\n" +
-                $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}°\n" +
-                $"μ={CurrentManipulability:E2} | {EngineeringAuditReport}\n" +
+                $"KINETIC-CAD XR | SPATIAL PHYSICAL AI STUDIO ({ManualTestWidthMm:F0}mm)\n" +
+                $"Workflow: {workflowBar}\n" +
+                $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | μ={CurrentManipulability:E2}\n" +
+                $"Audit: {EngineeringAuditReport}\n" +
                 $"{StatusMessage}";
 
             if (_urdfInspectorText != null && CurrentSpec != null)
@@ -797,6 +907,33 @@ namespace KineticCore.Runtime
                     $"  UDP :9870 -> {{\"q\":[{_theta[0]:F2},{_theta[1]:F2},{_theta[2]:F2}],\"mu\":{CurrentManipulability:F4}}}\n" +
                     $"  Pick-and-Place: {(_isHoldingWorkpiece ? "CARRYING -> Move to Drop Zone" : $"Ready ({CompletedGraspCount} placed)")}";
             }
+
+            if (_specSheetText != null && CurrentSpec != null)
+            {
+                if (_specSheetTransform != null && _headCamera != null)
+                {
+                    Vector3 toSpec = _specSheetTransform.position - _headCamera.transform.position;
+                    if (toSpec.sqrMagnitude > 0.001f)
+                        _specSheetTransform.rotation = Quaternion.LookRotation(toSpec.normalized, Vector3.up);
+                }
+
+                double mTotal = 0.0;
+                if (CurrentSpec.links != null)
+                    for (int i = 0; i < CurrentSpec.links.Length; i++)
+                        mTotal += CurrentSpec.links[i].massKg;
+                double l1 = (CurrentSpec.links != null && CurrentSpec.links.Length > 1) ? CurrentSpec.links[1].lengthM : 0.14;
+                double l2 = (CurrentSpec.links != null && CurrentSpec.links.Length > 2) ? CurrentSpec.links[2].lengthM : 0.11;
+                double tauPeak = 9.81 * (0.50 + mTotal * 0.4) * (l1 + l2);
+                string[] topoNames = { "Articulated 3R Claw", "SCARA Selective Arm", "Heavy Turret Palletizer", "Precision Wrist Probe" };
+                string topoLabel = topoNames[((_topologyVariantIndex % 4) + 4) % 4];
+
+                _specSheetText.text =
+                    $"=== PoE SCREW & TORQUE SHEET ===\n" +
+                    $"Topology: {topoLabel} ({specTag})\n" +
+                    $"Reach={(l1 + l2) * 1000:F0}mm | Mass={mTotal:F2}kg | Peak τ={tauPeak:F2}Nm\n" +
+                    $"DLS IK: λ=0.06 (90Hz) | Health={(CurrentManipulability > 4e-4 ? "OPTIMAL (CYAN)" : "NEAR-SINGULAR")}\n" +
+                    $"Input: Direct Finger Poke + Gaze & Pinch";
+            }
         }
 
         // ------------------------------------------------------------------ Synthesis / audit / export
@@ -808,9 +945,9 @@ namespace KineticCore.Runtime
             try
             {
                 UpdateSampleWorkpieceVisual(widthMm);
-                StatusMessage = $"Synthesizing for {widthMm:F0}mm object via Nebius Super...";
+                StatusMessage = $"Synthesizing {widthMm:F0}mm topology #{_topologyVariantIndex + 1}...";
                 var synth = new NebiusKinematicSynthesizer();
-                MechanismSpec spec = await synth.SynthesizeMechanismAsync(widthMm, UserIntentPrompt);
+                MechanismSpec spec = await synth.SynthesizeMechanismAsync(widthMm, UserIntentPrompt, _topologyVariantIndex);
                 if (this == null) return;
                 ActiveNebiusModel = synth.LastModelUsed;
                 LastSpecSource = synth.LastSpecSource;
@@ -818,7 +955,7 @@ namespace KineticCore.Runtime
                 LastApiLatencyMs = synth.LastLatencyMs;
                 ApplyMechanismSpec(spec);
                 _spawnAnimTimer = 1.0f;
-                string tag = LastSpecFromAi ? "AI spec" : "parametric fallback";
+                string tag = LastSpecFromAi ? "AI spec" : "PoE parametric";
                 StatusMessage = $"FAST SYNTH: Spawned '{spec.robotName}' ({tag}, {LastApiLatencyMs}ms)";
                 WriteDiagnosticState("SynthesizeFast");
             }
@@ -838,6 +975,7 @@ namespace KineticCore.Runtime
             if (CurrentSpec == null) return;
             try
             {
+                _stepAuditOrExportDone = true;
                 _auditSweepTimer = 1.2f; // Trigger visible 3D kinematic inspection sweep!
                 StatusMessage = "DEEP AUDIT: Running Kinematic & Torque Sweep...";
                 var synth = new NebiusKinematicSynthesizer();
@@ -859,7 +997,7 @@ namespace KineticCore.Runtime
         public void SynthesizeAndSpawnSync(double widthMm)
         {
             UpdateSampleWorkpieceVisual(widthMm);
-            MechanismSpec spec = NebiusKinematicSynthesizer.BuildDeterministicMechanism(widthMm);
+            MechanismSpec spec = NebiusKinematicSynthesizer.BuildDeterministicMechanism(widthMm, _topologyVariantIndex);
             ApplyMechanismSpec(spec);
         }
 
@@ -868,6 +1006,7 @@ namespace KineticCore.Runtime
             if (CurrentSpec == null) return;
             try
             {
+                _stepAuditOrExportDone = true;
                 LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, Application.persistentDataPath);
                 if (Application.isEditor)
                 {

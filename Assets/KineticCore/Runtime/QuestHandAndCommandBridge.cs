@@ -43,6 +43,8 @@ namespace KineticCore.Runtime
         private float _lastPokeTime = -10f;
         private int _lastClickedButtonIdx = -1;
         private int _hoveredButtonIdx = -1;
+        private int _gazeFocusedButtonIdx = -1;
+        private bool _prevHandPinch = false;
         private bool _draggingTargetWithMouse = false;
         private GameObject _fingertipReticle;
         private Renderer _reticleRenderer;
@@ -185,6 +187,7 @@ namespace KineticCore.Runtime
                     CheckDeskButtonPokes(_typedReader.LeftWorld, resetColorsIfNotPoked: !hasRightPoint);
                 }
 
+                PollGazeAndMicroPinch(hasRightPoint || hasLeftPoint);
                 PollControllerAndPinchShortcuts();
             }
 #if UNITY_EDITOR
@@ -396,6 +399,103 @@ namespace KineticCore.Runtime
                 SpatialTactileAudio.Instance?.PlayHoverTick(_buttonTransforms[currentHover].position);
             }
             _hoveredButtonIdx = currentHover;
+        }
+
+        /// <summary>
+        /// "Eyes & Hands" seated mode: allows looking at any 3D desk button and pinching thumb + index finger
+        /// from a relaxed lap posture (Airplane Seat Test) without lifting your arm to poke.
+        /// </summary>
+        private void PollGazeAndMicroPinch(bool fingerPokeActive)
+        {
+            if (_buttonTransforms == null || MechanismController == null) return;
+            Camera cam = MechanismController.HeadCamera != null ? MechanismController.HeadCamera : Camera.main;
+            if (cam == null) return;
+
+            Vector3 eyePos = cam.transform.position;
+            Vector3 gazeDir = cam.transform.forward;
+            int bestGazeIdx = -1;
+            float bestAngle = 7.2f; // 7.2 degree FoV gaze cone
+
+            for (int i = 0; i < _buttonTransforms.Length; i++)
+            {
+                Vector3 toBtn = _buttonTransforms[i].position - eyePos;
+                if (toBtn.sqrMagnitude < 0.001f) continue;
+                float angle = Vector3.Angle(gazeDir, toBtn.normalized);
+                if (angle < bestAngle)
+                {
+                    bestAngle = angle;
+                    bestGazeIdx = i;
+                }
+            }
+
+            if (!fingerPokeActive)
+            {
+                for (int i = 0; i < _buttonTransforms.Length; i++)
+                {
+                    if (i == _lastClickedButtonIdx && (Time.time - _lastPokeTime) <= 0.28f) continue;
+                    bool gazeFocus = (i == bestGazeIdx);
+                    SetColorSafe(_buttonRenderers[i], gazeFocus ? Color.Lerp(_buttonBaseColors[i], Color.white, 0.32f) : _buttonBaseColors[i]);
+                    _buttonTransforms[i].localScale = gazeFocus
+                        ? new Vector3(0.075f, 0.024f, 0.045f)
+                        : new Vector3(0.072f, 0.022f, 0.042f);
+                    Vector3 lp = _buttonTransforms[i].localPosition;
+                    _buttonTransforms[i].localPosition = new Vector3(lp.x, 0f, lp.z);
+                }
+
+                if (bestGazeIdx >= 0 && bestGazeIdx != _gazeFocusedButtonIdx)
+                {
+                    SpatialTactileAudio.Instance?.PlayHoverTick(_buttonTransforms[bestGazeIdx].position);
+                }
+            }
+            _gazeFocusedButtonIdx = bestGazeIdx;
+
+            bool isPinching = IsEitherHandPinching();
+            bool pinchDown = isPinching && !_prevHandPinch;
+            _prevHandPinch = isPinching;
+
+            if (pinchDown && bestGazeIdx >= 0 && (Time.time - _lastPokeTime) >= ButtonCooldownSec)
+            {
+                _lastPokeTime = Time.time;
+                _lastClickedButtonIdx = bestGazeIdx;
+                SetColorSafe(_buttonRenderers[bestGazeIdx], Color.white);
+                _buttonTransforms[bestGazeIdx].localScale = new Vector3(0.078f, 0.015f, 0.048f);
+                Vector3 lp = _buttonTransforms[bestGazeIdx].localPosition;
+                _buttonTransforms[bestGazeIdx].localPosition = new Vector3(lp.x, -0.0055f, lp.z);
+                SpatialTactileAudio.Instance?.PlayPokeClick(_buttonTransforms[bestGazeIdx].position);
+                InvokeControllerCommand(_buttonActions[bestGazeIdx]);
+            }
+        }
+
+        private bool IsEitherHandPinching()
+        {
+            EnsureOvrHandsBound();
+            try
+            {
+                if (_rightOvrHand != null && _rightOvrHand.IsTracked && _rightOvrHand.GetFingerIsPinching(OVRHand.HandFinger.Index))
+                    return true;
+                if (_leftOvrHand != null && _leftOvrHand.IsTracked && _leftOvrHand.GetFingerIsPinching(OVRHand.HandFinger.Index))
+                    return true;
+            }
+            catch { }
+
+            if (_handSubsystem != null && _handSubsystem.running)
+            {
+                if (IsXrHandPinching(_handSubsystem.rightHand) || IsXrHandPinching(_handSubsystem.leftHand))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsXrHandPinching(XRHand hand)
+        {
+            if (!hand.isTracked) return false;
+            XRHandJoint thumb = hand.GetJoint(XRHandJointID.ThumbTip);
+            XRHandJoint index = hand.GetJoint(XRHandJointID.IndexTip);
+            if (thumb.TryGetPose(out Pose tp) && index.TryGetPose(out Pose ip))
+            {
+                return Vector3.Distance(tp.position, ip.position) < 0.021f;
+            }
+            return false;
         }
 
         private void PollControllerAndPinchShortcuts()

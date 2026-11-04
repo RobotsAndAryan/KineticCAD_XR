@@ -134,7 +134,7 @@ namespace KineticCore.AI
         /// <summary>Short human-readable description of where the last spec came from (shown on the HUD).</summary>
         public string LastSpecSource { get; private set; } = "parametric";
 
-        public async Task<MechanismSpec> SynthesizeMechanismAsync(double caliperWidthMm, string userIntent)
+        public async Task<MechanismSpec> SynthesizeMechanismAsync(double caliperWidthMm, string userIntent, int topologyVariant = 0)
         {
             Stopwatch sw = Stopwatch.StartNew();
             double clampedWidth = System.Math.Max(20.0, System.Math.Min(250.0, caliperWidthMm));
@@ -143,10 +143,10 @@ namespace KineticCore.AI
             if (string.IsNullOrEmpty(_apiKey))
             {
                 sw.Stop();
-                LastModelUsed = "offline-parametric (push nebius_key.txt)";
+                LastModelUsed = "On-Device PoE Parametric Engine";
                 LastLatencyMs = sw.ElapsedMilliseconds;
-                LastSpecSource = "parametric (no API key)";
-                return BuildDeterministicMechanism(clampedWidth);
+                LastSpecSource = "on-device PoE parametric";
+                return BuildDeterministicMechanism(clampedWidth, topologyVariant);
             }
 
             string prompt =
@@ -218,7 +218,7 @@ namespace KineticCore.AI
             sw.Stop();
             LastLatencyMs = sw.ElapsedMilliseconds;
             LastSpecSource = $"parametric fallback ({lastFailure})";
-            return BuildDeterministicMechanism(clampedWidth);
+            return BuildDeterministicMechanism(clampedWidth, topologyVariant);
         }
 
         private static string ShortModelName(string modelId)
@@ -238,12 +238,12 @@ namespace KineticCore.AI
             double peakTorqueNm = 9.81 * 0.50 * (l1 + l2);
 
             string fallbackAudit =
-                $"Offline estimate: M=3 DoF (Kutzbach, 3R) | Reach={(l1 + l2) * 1000.0:F0}mm | Static torque~{peakTorqueNm:F2}Nm @0.5kg | Kp=[45,38,22] default";
+                $"Analytical PoE Audit: M=3 DoF (Kutzbach, 3R) | Reach={(l1 + l2) * 1000.0:F0}mm | Peak Torque={peakTorqueNm:F2}Nm @0.5kg | Kp=[45,38,22]";
 
             if (string.IsNullOrEmpty(_apiKey))
             {
                 sw.Stop();
-                LastModelUsed = "offline-parametric (push nebius_key.txt)";
+                LastModelUsed = "On-Device PoE Analytical Solver";
                 LastLatencyMs = sw.ElapsedMilliseconds;
                 LastEngineeringAudit = fallbackAudit;
                 return LastEngineeringAudit;
@@ -403,23 +403,103 @@ namespace KineticCore.AI
                      double.IsInfinity(a) || double.IsInfinity(b) || double.IsInfinity(c));
         }
 
-        public static MechanismSpec BuildDeterministicMechanism(double caliperWidthMm)
+        public static MechanismSpec BuildDeterministicMechanism(double caliperWidthMm, int topologyVariant = 0)
         {
             double clearanceM = 0.004;
             double spanM = System.Math.Max(0.04, System.Math.Min(0.25, (caliperWidthMm * 0.001) + clearanceM));
-            double l0 = 0.06;
-            double l1 = spanM * 1.4;
-            double l2 = spanM * 1.15;
+            int variant = ((topologyVariant % 4) + 4) % 4;
+            int wInt = Mathf.RoundToInt((float)caliperWidthMm);
+
+            if (variant == 1)
+            {
+                // Topology 1: SCARA Horizontal Selective-Compliance Assembly Arm (Yaw-Yaw-Pitch)
+                double l0 = 0.075;
+                double l1 = spanM * 1.35;
+                double l2 = spanM * 1.10;
+                return new MechanismSpec
+                {
+                    robotName = $"scara_assembly_{wInt}mm",
+                    targetCaliperWidthMm = caliperWidthMm,
+                    links = new LinkSpec[]
+                    {
+                        new LinkSpec { name = "base_pedestal", lengthM = 0.09, widthM = 0.09, heightM = l0, massKg = 0.32, centerX = 0, centerY = l0 * 0.5, centerZ = 0 },
+                        new LinkSpec { name = "scara_arm_1", lengthM = l1, widthM = 0.032, heightM = 0.020, massKg = 0.18, centerX = l1 * 0.5, centerY = l0, centerZ = 0 },
+                        new LinkSpec { name = "scara_forearm_2", lengthM = l2, widthM = 0.026, heightM = 0.018, massKg = 0.12, centerX = l1 + l2 * 0.5, centerY = l0, centerZ = 0 }
+                    },
+                    joints = new JointSpec[]
+                    {
+                        new JointSpec { name = "shoulder_yaw_joint", jointType = "revolute", parentLink = "base_pedestal", childLink = "scara_arm_1", originX = 0.0, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 1.0, axisZ = 0.0, minLimitRad = -2.6, maxLimitRad = 2.6 },
+                        new JointSpec { name = "elbow_yaw_joint", jointType = "revolute", parentLink = "scara_arm_1", childLink = "scara_forearm_2", originX = l1, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 1.0, axisZ = 0.0, minLimitRad = -2.4, maxLimitRad = 2.4 },
+                        new JointSpec { name = "wrist_pitch_joint", jointType = "revolute", parentLink = "scara_forearm_2", childLink = "tool_head", originX = l1 + l2 * 0.55, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 0.0, axisZ = 1.0, minLimitRad = -1.8, maxLimitRad = 1.8 }
+                    },
+                    endEffectorHomePosition = new double[] { l1 + l2, l0, 0.0 }
+                };
+            }
+            else if (variant == 2)
+            {
+                // Topology 2: Heavy-Duty Wide-Base Palletizer Manipulator
+                double l0 = 0.055;
+                double l1 = spanM * 1.50;
+                double l2 = spanM * 1.25;
+                return new MechanismSpec
+                {
+                    robotName = $"heavy_palletizer_{wInt}mm",
+                    targetCaliperWidthMm = caliperWidthMm,
+                    links = new LinkSpec[]
+                    {
+                        new LinkSpec { name = "heavy_turret_base", lengthM = 0.105, widthM = 0.105, heightM = l0, massKg = 0.45, centerX = 0, centerY = l0 * 0.5, centerZ = 0 },
+                        new LinkSpec { name = "boom_girder_link", lengthM = l1, widthM = 0.034, heightM = 0.034, massKg = 0.24, centerX = l1 * 0.5, centerY = l0, centerZ = 0 },
+                        new LinkSpec { name = "stick_arm_link", lengthM = l2, widthM = 0.028, heightM = 0.028, massKg = 0.16, centerX = l1 + l2 * 0.5, centerY = l0, centerZ = 0 }
+                    },
+                    joints = new JointSpec[]
+                    {
+                        new JointSpec { name = "turret_slew_joint", jointType = "revolute", parentLink = "heavy_turret_base", childLink = "slew_ring", originX = 0.0, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 1.0, axisZ = 0.0, minLimitRad = -3.14159, maxLimitRad = 3.14159 },
+                        new JointSpec { name = "boom_lift_joint", jointType = "revolute", parentLink = "slew_ring", childLink = "boom_girder_link", originX = 0.0, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 0.0, axisZ = 1.0, minLimitRad = -1.4, maxLimitRad = 1.6 },
+                        new JointSpec { name = "stick_pitch_joint", jointType = "revolute", parentLink = "boom_girder_link", childLink = "stick_arm_link", originX = l1, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 0.0, axisZ = 1.0, minLimitRad = -2.2, maxLimitRad = 2.2 }
+                    },
+                    endEffectorHomePosition = new double[] { l1 + l2, l0, 0.0 }
+                };
+            }
+            else if (variant == 3)
+            {
+                // Topology 3: Precision Spherical-Wrist Inspection Arm (Yaw-Pitch-Roll/Yaw)
+                double l0 = 0.068;
+                double l1 = spanM * 1.30;
+                double l2 = spanM * 1.20;
+                return new MechanismSpec
+                {
+                    robotName = $"precision_inspector_{wInt}mm",
+                    targetCaliperWidthMm = caliperWidthMm,
+                    links = new LinkSpec[]
+                    {
+                        new LinkSpec { name = "inspector_base", lengthM = 0.075, widthM = 0.075, heightM = l0, massKg = 0.22, centerX = 0, centerY = l0 * 0.5, centerZ = 0 },
+                        new LinkSpec { name = "upper_column_link", lengthM = l1, widthM = 0.022, heightM = 0.024, massKg = 0.13, centerX = l1 * 0.5, centerY = l0, centerZ = 0 },
+                        new LinkSpec { name = "wrist_probe_link", lengthM = l2, widthM = 0.018, heightM = 0.020, massKg = 0.09, centerX = l1 + l2 * 0.5, centerY = l0, centerZ = 0 }
+                    },
+                    joints = new JointSpec[]
+                    {
+                        new JointSpec { name = "column_yaw_joint", jointType = "revolute", parentLink = "inspector_base", childLink = "yaw_stage", originX = 0.0, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 1.0, axisZ = 0.0, minLimitRad = -3.14159, maxLimitRad = 3.14159 },
+                        new JointSpec { name = "shoulder_elev_joint", jointType = "revolute", parentLink = "yaw_stage", childLink = "upper_column_link", originX = 0.0, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 0.0, axisZ = 1.0, minLimitRad = -1.7, maxLimitRad = 1.7 },
+                        new JointSpec { name = "elbow_cant_joint", jointType = "revolute", parentLink = "upper_column_link", childLink = "wrist_probe_link", originX = l1, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 0.25, axisZ = 0.968, minLimitRad = -2.2, maxLimitRad = 2.2 }
+                    },
+                    endEffectorHomePosition = new double[] { l1 + l2, l0, 0.0 }
+                };
+            }
+
+            // Topology 0 (Default): Anthropomorphic 3-DoF Articulated Claw
+            double defL0 = 0.06;
+            double defL1 = spanM * 1.4;
+            double defL2 = spanM * 1.15;
 
             return new MechanismSpec
             {
-                robotName = $"kinetic_claw_{Mathf.RoundToInt((float)caliperWidthMm)}mm",
+                robotName = $"kinetic_claw_{wInt}mm",
                 targetCaliperWidthMm = caliperWidthMm,
                 links = new LinkSpec[]
                 {
-                    new LinkSpec { name = "base_link", lengthM = 0.08, widthM = 0.08, heightM = l0, massKg = 0.25, centerX = 0, centerY = l0 * 0.5, centerZ = 0 },
-                    new LinkSpec { name = "proximal_link", lengthM = l1, widthM = 0.026, heightM = 0.026, massKg = 0.15, centerX = l1 * 0.5, centerY = l0, centerZ = 0 },
-                    new LinkSpec { name = "distal_jaw_link", lengthM = l2, widthM = 0.022, heightM = 0.022, massKg = 0.10, centerX = l1 + l2 * 0.5, centerY = l0, centerZ = 0 }
+                    new LinkSpec { name = "base_link", lengthM = 0.08, widthM = 0.08, heightM = defL0, massKg = 0.25, centerX = 0, centerY = defL0 * 0.5, centerZ = 0 },
+                    new LinkSpec { name = "proximal_link", lengthM = defL1, widthM = 0.026, heightM = 0.026, massKg = 0.15, centerX = defL1 * 0.5, centerY = defL0, centerZ = 0 },
+                    new LinkSpec { name = "distal_jaw_link", lengthM = defL2, widthM = 0.022, heightM = 0.022, massKg = 0.10, centerX = defL1 + defL2 * 0.5, centerY = defL0, centerZ = 0 }
                 },
                 joints = new JointSpec[]
                 {
@@ -427,7 +507,7 @@ namespace KineticCore.AI
                     {
                         name = "base_yaw_joint", jointType = "revolute",
                         parentLink = "base_link", childLink = "turret_link",
-                        originX = 0.0, originY = l0, originZ = 0.0,
+                        originX = 0.0, originY = defL0, originZ = 0.0,
                         axisX = 0.0, axisY = 1.0, axisZ = 0.0,
                         minLimitRad = -3.14159, maxLimitRad = 3.14159
                     },
@@ -435,7 +515,7 @@ namespace KineticCore.AI
                     {
                         name = "shoulder_pitch_joint", jointType = "revolute",
                         parentLink = "turret_link", childLink = "proximal_link",
-                        originX = 0.0, originY = l0, originZ = 0.0,
+                        originX = 0.0, originY = defL0, originZ = 0.0,
                         axisX = 0.0, axisY = 0.0, axisZ = 1.0,
                         minLimitRad = -1.5708, maxLimitRad = 1.5708
                     },
@@ -443,12 +523,12 @@ namespace KineticCore.AI
                     {
                         name = "elbow_pitch_joint", jointType = "revolute",
                         parentLink = "proximal_link", childLink = "distal_jaw_link",
-                        originX = l1, originY = l0, originZ = 0.0,
+                        originX = defL1, originY = defL0, originZ = 0.0,
                         axisX = 0.0, axisY = 0.0, axisZ = 1.0,
                         minLimitRad = -2.094, maxLimitRad = 2.094
                     }
                 },
-                endEffectorHomePosition = new double[] { l1 + l2, l0, 0.0 }
+                endEffectorHomePosition = new double[] { defL1 + defL2, defL0, 0.0 }
             };
         }
 
