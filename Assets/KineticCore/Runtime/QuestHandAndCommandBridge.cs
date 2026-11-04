@@ -39,7 +39,7 @@ namespace KineticCore.Runtime
         private Renderer[] _buttonRenderers;
         private Color[] _buttonBaseColors;
         private readonly string[] _buttonActions = { "SynthesizeFast", "SynthesizeDeep", "ExportUrdf", "TogglePuppet", "ResetPose" };
-        private readonly string[] _buttonLabels = { "FAST SYNTH\n(Super)", "DEEP AUDIT\n(Ultra)", "EXPORT\nURDF", "TOGGLE\nPUPPET", "RESET\nPOSE" };
+        private readonly string[] _buttonLabels = { "SYNTHESIZE\nTOPOLOGY", "KINEMATIC\nAUDIT", "EXPORT\nURDF + STL", "TOGGLE\nPUPPET", "CALIBRATE\nDESK" };
         private float _lastPokeTime = -10f;
         private int _lastClickedButtonIdx = -1;
         private int _hoveredButtonIdx = -1;

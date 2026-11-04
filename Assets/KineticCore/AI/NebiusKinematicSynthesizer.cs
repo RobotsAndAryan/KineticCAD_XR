@@ -412,7 +412,7 @@ namespace KineticCore.AI
 
             if (variant == 1)
             {
-                // Topology 1: SCARA Horizontal Selective-Compliance Assembly Arm (Yaw-Yaw-Pitch)
+                // Topology 1: SCARA Horizontal Selective-Compliance Assembly Arm
                 double l0 = 0.075;
                 double l1 = spanM * 1.35;
                 double l2 = spanM * 1.10;
@@ -423,14 +423,14 @@ namespace KineticCore.AI
                     links = new LinkSpec[]
                     {
                         new LinkSpec { name = "base_pedestal", lengthM = 0.09, widthM = 0.09, heightM = l0, massKg = 0.32, centerX = 0, centerY = l0 * 0.5, centerZ = 0 },
-                        new LinkSpec { name = "scara_arm_1", lengthM = l1, widthM = 0.032, heightM = 0.020, massKg = 0.18, centerX = l1 * 0.5, centerY = l0, centerZ = 0 },
-                        new LinkSpec { name = "scara_forearm_2", lengthM = l2, widthM = 0.026, heightM = 0.018, massKg = 0.12, centerX = l1 + l2 * 0.5, centerY = l0, centerZ = 0 }
+                        new LinkSpec { name = "scara_arm_1", lengthM = l1, widthM = 0.034, heightM = 0.020, massKg = 0.18, centerX = l1 * 0.5, centerY = l0, centerZ = 0 },
+                        new LinkSpec { name = "scara_forearm_2", lengthM = l2, widthM = 0.028, heightM = 0.018, massKg = 0.12, centerX = l1 + l2 * 0.5, centerY = l0, centerZ = 0 }
                     },
                     joints = new JointSpec[]
                     {
-                        new JointSpec { name = "shoulder_yaw_joint", jointType = "revolute", parentLink = "base_pedestal", childLink = "scara_arm_1", originX = 0.0, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 1.0, axisZ = 0.0, minLimitRad = -2.6, maxLimitRad = 2.6 },
-                        new JointSpec { name = "elbow_yaw_joint", jointType = "revolute", parentLink = "scara_arm_1", childLink = "scara_forearm_2", originX = l1, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 1.0, axisZ = 0.0, minLimitRad = -2.4, maxLimitRad = 2.4 },
-                        new JointSpec { name = "wrist_pitch_joint", jointType = "revolute", parentLink = "scara_forearm_2", childLink = "tool_head", originX = l1 + l2 * 0.55, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 0.0, axisZ = 1.0, minLimitRad = -1.8, maxLimitRad = 1.8 }
+                        new JointSpec { name = "shoulder_yaw_joint", jointType = "revolute", parentLink = "base_pedestal", childLink = "scara_shoulder", originX = 0.0, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 1.0, axisZ = 0.0, minLimitRad = -2.8, maxLimitRad = 2.8 },
+                        new JointSpec { name = "vertical_compliance_joint", jointType = "revolute", parentLink = "scara_shoulder", childLink = "scara_arm_1", originX = 0.0, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 0.0, axisZ = 1.0, minLimitRad = -1.4, maxLimitRad = 1.4 },
+                        new JointSpec { name = "elbow_sweep_joint", jointType = "revolute", parentLink = "scara_arm_1", childLink = "scara_forearm_2", originX = l1, originY = l0, originZ = 0.0, axisX = 0.0, axisY = 0.78, axisZ = 0.625, minLimitRad = -2.4, maxLimitRad = 2.4 }
                     },
                     endEffectorHomePosition = new double[] { l1 + l2, l0, 0.0 }
                 };

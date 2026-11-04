@@ -245,5 +245,93 @@ namespace KineticCore.Export
             File.WriteAllText(filePath, SerializeToUrdfXml(spec));
             return filePath;
         }
+
+        /// <summary>
+        /// Exports a watertight ASCII STL 3D-printable CAD mesh (millimeter units for slicers such as Bambu Studio / PrusaSlicer)
+        /// containing the base pedestal, articulated links, and parallel-jaw gripper assembly scaled to targetCaliperWidthMm.
+        /// </summary>
+        public static string SaveStlToFile(MechanismSpec spec, string directoryPath)
+        {
+            if (!Directory.Exists(directoryPath))
+                Directory.CreateDirectory(directoryPath);
+
+            string fileName = Sanitize(string.IsNullOrEmpty(spec.robotName) ? "kinetic_cad_mechanism" : spec.robotName);
+            string filePath = Path.Combine(directoryPath, $"{fileName}_cad.stl");
+            File.WriteAllText(filePath, SerializeToAsciiStl(spec));
+            return filePath;
+        }
+
+        public static string SerializeToAsciiStl(MechanismSpec spec)
+        {
+            StringBuilder sb = new StringBuilder(16384);
+            string solidName = Sanitize(string.IsNullOrEmpty(spec?.robotName) ? "kinetic_cad_mechanism" : spec.robotName);
+            sb.AppendLine($"solid {solidName}");
+
+            if (spec?.links != null)
+            {
+                for (int i = 0; i < spec.links.Length; i++)
+                {
+                    LinkSpec lk = spec.links[i];
+                    if (lk == null) continue;
+                    // Convert meters to millimeters for standard 3D printing slicer import
+                    double cx = lk.centerX * 1000.0;
+                    double cy = lk.centerZ * 1000.0;
+                    double cz = lk.centerY * 1000.0;
+                    double sx = System.Math.Max(8.0, lk.lengthM * 1000.0);
+                    double sy = System.Math.Max(8.0, lk.widthM * 1000.0);
+                    double sz = System.Math.Max(8.0, lk.heightM * 1000.0);
+                    AppendStlBox(sb, cx, cy, cz, sx, sy, sz);
+                }
+            }
+
+            // Append parallel-jaw gripper assembly at end-effector home position (in mm)
+            double eeX = (spec?.endEffectorHomePosition != null && spec.endEffectorHomePosition.Length == 3) ? spec.endEffectorHomePosition[0] * 1000.0 : 220.0;
+            double eeZ = (spec?.endEffectorHomePosition != null && spec.endEffectorHomePosition.Length == 3) ? spec.endEffectorHomePosition[1] * 1000.0 : 60.0;
+            double jawSpanMm = System.Math.Max(24.0, System.Math.Min(220.0, spec != null ? spec.targetCaliperWidthMm : 70.0));
+
+            // Crossbar bracket + Left & Right parallel gripper jaws
+            AppendStlBox(sb, eeX, 0.0, eeZ, 10.0, jawSpanMm + 16.0, 8.0);
+            AppendStlBox(sb, eeX + 14.0, -jawSpanMm * 0.5, eeZ, 28.0, 6.0, 12.0);
+            AppendStlBox(sb, eeX + 14.0,  jawSpanMm * 0.5, eeZ, 28.0, 6.0, 12.0);
+
+            sb.AppendLine($"endsolid {solidName}");
+            return sb.ToString();
+        }
+
+        private static void AppendStlBox(StringBuilder sb, double cx, double cy, double cz, double sx, double sy, double sz)
+        {
+            double hx = sx * 0.5, hy = sy * 0.5, hz = sz * 0.5;
+            double x0 = cx - hx, x1 = cx + hx;
+            double y0 = cy - hy, y1 = cy + hy;
+            double z0 = cz - hz, z1 = cz + hz;
+
+            // 6 faces (12 triangles) with outward normals
+            AppendStlQuad(sb,  0,  0,  1, x0,y0,z1, x1,y0,z1, x1,y1,z1, x0,y1,z1);
+            AppendStlQuad(sb,  0,  0, -1, x0,y1,z0, x1,y1,z0, x1,y0,z0, x0,y0,z0);
+            AppendStlQuad(sb,  1,  0,  0, x1,y0,z0, x1,y1,z0, x1,y1,z1, x1,y0,z1);
+            AppendStlQuad(sb, -1,  0,  0, x0,y1,z0, x0,y0,z0, x0,y0,z1, x0,y1,z1);
+            AppendStlQuad(sb,  0,  1,  0, x1,y1,z0, x0,y1,z0, x0,y1,z1, x1,y1,z1);
+            AppendStlQuad(sb,  0, -1,  0, x0,y0,z0, x1,y0,z0, x1,y0,z1, x0,y0,z1);
+        }
+
+        private static void AppendStlQuad(StringBuilder sb, double nx, double ny, double nz,
+            double ax, double ay, double az, double bx, double by, double bz,
+            double cx, double cy, double cz, double dx, double dy, double dz)
+        {
+            AppendStlTri(sb, nx, ny, nz, ax, ay, az, bx, by, bz, cx, cy, cz);
+            AppendStlTri(sb, nx, ny, nz, ax, ay, az, cx, cy, cz, dx, dy, dz);
+        }
+
+        private static void AppendStlTri(StringBuilder sb, double nx, double ny, double nz,
+            double ax, double ay, double az, double bx, double by, double bz, double cx, double cy, double cz)
+        {
+            sb.AppendLine(string.Format(Inv, "  facet normal {0:F4} {1:F4} {2:F4}", nx, ny, nz));
+            sb.AppendLine("    outer loop");
+            sb.AppendLine(string.Format(Inv, "      vertex {0:F4} {1:F4} {2:F4}", ax, ay, az));
+            sb.AppendLine(string.Format(Inv, "      vertex {0:F4} {1:F4} {2:F4}", bx, by, bz));
+            sb.AppendLine(string.Format(Inv, "      vertex {0:F4} {1:F4} {2:F4}", cx, cy, cz));
+            sb.AppendLine("    endloop");
+            sb.AppendLine("  endfacet");
+        }
     }
 }

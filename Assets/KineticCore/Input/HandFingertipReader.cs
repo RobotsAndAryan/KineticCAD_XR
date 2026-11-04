@@ -27,6 +27,9 @@ namespace KineticCore.Input
         private OVRHand _leftOvrHand;
         private OVRHand _rightOvrHand;
         private Transform _trackingSpace;
+        private float _nextOriginLookupTime = -10f;
+        private float _nextOvrLookupTime = -10f;
+        private float _nextSubsystemLookupTime = -10f;
 
         private void Awake()
         {
@@ -135,6 +138,8 @@ namespace KineticCore.Input
         {
             if (_trackingSpace == null)
             {
+                if (Time.unscaledTime < _nextOriginLookupTime) return;
+                _nextOriginLookupTime = Time.unscaledTime + 1.0f;
                 GameObject ts = GameObject.Find("TrackingSpace") ?? GameObject.Find("OVRCameraRigInteraction") ?? GameObject.Find("OVRCameraRig");
                 if (ts != null) _trackingSpace = ts.transform;
             }
@@ -147,6 +152,9 @@ namespace KineticCore.Input
         private void EnsureOvrHandsBound()
         {
             if (_leftOvrSkeleton != null && _rightOvrSkeleton != null) return;
+            if (Time.unscaledTime < _nextOvrLookupTime) return;
+            _nextOvrLookupTime = Time.unscaledTime + 1.0f;
+
             foreach (var skel in FindObjectsByType<OVRSkeleton>(FindObjectsInactive.Exclude))
             {
                 if (skel.GetSkeletonType() == OVRSkeleton.SkeletonType.HandLeft ||
@@ -166,6 +174,9 @@ namespace KineticCore.Input
 
         private void TryBindSubsystem()
         {
+            if (Time.unscaledTime < _nextSubsystemLookupTime) return;
+            _nextSubsystemLookupTime = Time.unscaledTime + 1.0f;
+
             _subsystemList.Clear();
             SubsystemManager.GetSubsystems(_subsystemList);
             foreach (var sub in _subsystemList)

@@ -9,9 +9,9 @@
 KineticCAD XR: Hands-First Spatial Robotics & CAD Studio
 ```
 
-### **Submission Tagline** *(138 / 140 characters)*
+### **Submission Tagline** *(139 / 140 characters)*
 ```text
-Hands-first MR spatial CAD studio: pinch-measure desk objects, synthesize 4 robot topologies, pick-and-place at 90Hz, and export URDFs.
+Hands-first MR robotics CAD studio: pinch-measure objects, synthesize 4 robot topologies, pick-and-place at 90Hz, and export URDF + STL CAD.
 ```
 
 ### **Track**
@@ -25,11 +25,11 @@ Hands-first MR spatial CAD studio: pinch-measure desk objects, synthesize 4 robo
 
 ---
 
-## 2. Project Description *(492 words — strictly under the 500-word limit, hitting all 4 Judging Pillars & Special Awards)*
+## 2. Project Description *(494 words — strictly under the 500-word limit, hitting all 4 Judging Pillars & Special Awards)*
 
 ```markdown
 ### Inspiration
-Designing custom robotic mechanisms and articulated end-effectors for real-world objects traditionally requires days of fragmented desktop work: measuring parts with calipers, modeling in flat 2D CAD, deriving forward/inverse kinematics matrices by hand, and writing XML URDF files for simulation. We asked: *What if your physical desk and your bare hands were the entire robotics CAD studio?*
+Designing custom robotic mechanisms and articulated end-effectors for real-world objects traditionally requires days of fragmented desktop work: measuring parts with calipers, modeling in flat 2D CAD, deriving forward/inverse kinematics matrices by hand, and exporting meshes and XML URDF files for fabrication and simulation. We asked: *What if your physical desk and your bare hands were the entire robotics CAD studio?*
 
 We built **KineticCAD XR** for Meta Quest to transform any seated desk into a multi-panel, hands-first spatial engineering studio—collapsing days of mechanical design and kinematic math into a three-minute mixed reality workflow.
 
@@ -37,23 +37,23 @@ We built **KineticCAD XR** for Meta Quest to transform any seated desk into a mu
 1. **Seated & Airplane-Seat Optimized (MRUK Table Locking & Left-Hand Calibration):**
    Every interaction lives within a compact 0.5-meter tabletop workspace directly in front of the seated user at 90 Hz. Using Meta’s **MRUK** scene understanding (`DeskWorkspaceInitializer`), the workbench automatically locks onto the user’s physical table surface, or calibrates flush to their real tabletop in Insight Passthrough by resting the left hand on the desk and poking **Reset Pose**.
 
-2. **3-Panel Curved Spatial Productivity Workspace & Reachability Envelope:**
-   Three high-contrast dark-slate floating panels surround the workspace above a 20-segment **Kinematic Reachability Envelope Ring** projected onto the desk:
+2. **3-Panel Curved Spatial Workspace, Reachability Ring & 3D Heatmap Trail:**
+   Three Horizon-OS-inspired dark-slate floating panels with glowing accent rims surround a 20-segment **Kinematic Reachability Envelope Ring** on the desk and a **3D Manipulability Trajectory Trail** in mid-air:
    - **Left Panel (PoE Screw & Torque Spec Sheet):** Displays active robot topology, reach radius, link mass ($\text{kg}$), and static peak torque ($\text{N}\cdot\text{m}$).
    - **Center Panel (Main Telemetry, 4-Step Checklist & 5-Level Challenge):** Tracks live onboarding (`[✓]Synth -> [✓]Puppet -> [✓]Pick&Place -> [✓]Audit/URDF`) and a **5-Level Spatial Robotics Challenge** with star ratings (`★★★`) scored by minimum Yoshikawa manipulability maintained during transport.
-   - **Right Panel (ROS 2 / Isaac Sim URDF Inspector):** Displays the generated REP-103 `<robot>` XML hierarchy and live 60 Hz `/joint_states` UDP telemetry stream directly inside Mixed Reality.
+   - **Right Panel (ROS 2 URDF & 3D-Print STL Inspector):** Displays the generated REP-103 `<robot>` XML, watertight `<robot>_cad.stl` 3D-printable mesh status, and live 60 Hz `/joint_states` UDP stream.
 
-3. **Complete Workflow in Under 3 Minutes ("The One Bus Stop Test"):**
+3. **Complete CAD-to-Hardware Workflow in Under 3 Minutes ("The One Bus Stop Test"):**
    - **Bimanual Spatial Caliper:** Hold both index fingers on either side of a real object on your desk to measure and lock its millimeter width with tactile audio ticks.
-   - **Multi-Topology Synthesis:** Synthesizes 4 distinct 3-DoF industrial topologies (**Articulated 3R Claw**, **SCARA Selective Arm**, **Heavy Turret Palletizer**, and **Precision Wrist Probe**) with articulated parallel gripper jaws scaled to your object.
-   - **Reach-Scaled Pick-and-Place Loop:** Guide the parallel jaws with your right index fingertip over the desk workpiece to automatically clamp, lift, and deliver it to the Drop Zone pad across 5 engineering challenge levels.
+   - **Multi-Topology Synthesis:** Synthesizes 4 distinct 3-DoF industrial topologies (**Articulated 3R Claw**, **SCARA Selective Arm**, **Heavy Turret Palletizer**, and **Precision Wrist Probe**) with parallel gripper jaws scaled to your object.
+   - **One-Poke URDF + 3D-Printable STL Export:** Poking **Export URDF** writes both a ROS 2 / Isaac Sim `.urdf` and a watertight millimeter-scale ASCII `.stl` CAD mesh ready for 3D printing.
 
 4. **100% Entrant-Built Kinematics Core ("The Take It Away Test"):**
-   Even completely offline with zero cloud connectivity, KineticCAD XR runs a custom double-precision C# **Product of Exponentials (PoE)** screw-theory engine in $se(3)$, a **Damped Least-Squares (DLS)** analytical inverse kinematics solver ($\lambda = 0.06$) at 90 FPS, and real-time **Yoshikawa manipulability** ($\mu = \sqrt{\det(JJ^T)}$) shader feedback that shifts link colors from Cyan (`OPTIMAL DEXTERITY`) to Warning Red (`SINGULARITY RISK`).
+   Even completely offline with zero cloud connectivity, KineticCAD XR runs a custom double-precision C# **Product of Exponentials (PoE)** screw-theory engine in $se(3)$, a **Damped Least-Squares (DLS)** analytical inverse kinematics solver ($\lambda = 0.06$) at 90 FPS, and real-time **Yoshikawa manipulability** ($\mu = \sqrt{\det(JJ^T)}$) shader and trail feedback (`OPTIMAL DEXTERITY` to `SINGULARITY RISK`).
 
 ### Future Plans for Improvement
-- **Direct 3D Printing (STL/OBJ) Export:** One-poke export of watertight 3D-printable link meshes alongside the ROS 2 URDF.
 - **Co-Located Multi-Engineer Rooms:** Shared spatial anchors allowing two engineers to inspect and puppet the same mechanism simultaneously.
+- **Direct Microcontroller Serial Bridge:** Live USB/Wi-Fi servo angle streaming to physical Dynamixel/ESP32 robot arms on the desk.
 ```
 
 ---

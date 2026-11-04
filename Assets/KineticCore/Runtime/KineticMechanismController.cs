@@ -123,7 +123,16 @@ namespace KineticCore.Runtime
         private float _dropZoneFlashTimer = 0f;
         private Vector3 _workpieceHomeLocalPos = new Vector3(-0.12f, 0.008f, 0.04f);
         private Vector3 _dropZoneLocalPos = new Vector3(0.16f, 0.001f, 0.04f);
+        private float _lastReachMeters = 0.25f;
         private Transform[] _reachEnvelopeSegments;
+
+        // 3D Spatial Manipulability Trajectory Heatmap Trail
+        private const int TrailLength = 14;
+        private Transform[] _trailMarkers;
+        private Renderer[] _trailRenderers;
+        private Vector3[] _trailPositions;
+        private Color[] _trailColors;
+        private float _trailSampleTimer = 0f;
 
         // Visual feedback timers for button actions
         private float _spawnAnimTimer = 0f;
@@ -563,7 +572,63 @@ namespace KineticCore.Runtime
                 0.0015f, 32, new Color(0.35f, 1.0f, 0.65f), "DROP ZONE (Lv1)\nGrasps: 0 | ★★★");
 
             CreateReachEnvelopeRing();
+            CreateTrajectoryTrail();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+        }
+
+        private void CreateTrajectoryTrail()
+        {
+            _trailMarkers = new Transform[TrailLength];
+            _trailRenderers = new Renderer[TrailLength];
+            _trailPositions = new Vector3[TrailLength];
+            _trailColors = new Color[TrailLength];
+
+            GameObject trailRoot = new GameObject("SpatialManipulabilityTrail");
+            trailRoot.transform.SetParent(DeskWorkspaceOrigin, false);
+            trailRoot.transform.localPosition = Vector3.zero;
+            trailRoot.transform.localRotation = Quaternion.identity;
+
+            for (int i = 0; i < TrailLength; i++)
+            {
+                GameObject dot = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                dot.name = $"TrailPoint_{i}";
+                Destroy(dot.GetComponent<Collider>());
+                dot.transform.SetParent(trailRoot.transform, false);
+                float t = 1f - ((float)i / TrailLength);
+                float diam = Mathf.Lerp(0.003f, 0.0095f, t);
+                dot.transform.localScale = Vector3.one * diam;
+                dot.transform.localPosition = ManualTargetLocalPos;
+                _trailMarkers[i] = dot.transform;
+                _trailRenderers[i] = dot.GetComponent<Renderer>();
+                _trailPositions[i] = ManualTargetLocalPos;
+                _trailColors[i] = HealthyCyan;
+                SetColorSafe(_trailRenderers[i], HealthyCyan);
+            }
+        }
+
+        private void UpdateTrajectoryTrail(Color currentHealthColor)
+        {
+            if (_trailMarkers == null || _eeMarker == null || DeskWorkspaceOrigin == null) return;
+            _trailSampleTimer += Time.deltaTime;
+            if (_trailSampleTimer < 0.035f) return;
+            _trailSampleTimer = 0f;
+
+            Vector3 eeLocal = DeskWorkspaceOrigin.InverseTransformPoint(_eeMarker.position);
+            if (Vector3.Distance(eeLocal, _trailPositions[0]) < 0.004f) return;
+
+            for (int i = TrailLength - 1; i > 0; i--)
+            {
+                _trailPositions[i] = _trailPositions[i - 1];
+                _trailColors[i] = Color.Lerp(_trailColors[i - 1], new Color(0.08f, 0.16f, 0.28f), 0.12f);
+            }
+            _trailPositions[0] = eeLocal;
+            _trailColors[0] = currentHealthColor;
+
+            for (int i = 0; i < TrailLength; i++)
+            {
+                _trailMarkers[i].localPosition = _trailPositions[i];
+                SetColorSafe(_trailRenderers[i], _trailColors[i]);
+            }
         }
 
         private void CreateReachEnvelopeRing()
@@ -589,14 +654,19 @@ namespace KineticCore.Runtime
 
         private void UpdateReachEnvelopeAndStationPositions(float reachMeters)
         {
-            float clampedReach = Mathf.Clamp(reachMeters, 0.11f, 0.34f);
+            _lastReachMeters = Mathf.Clamp(reachMeters, 0.11f, 0.34f);
+            float clampedReach = _lastReachMeters;
 
             // Dynamically place Pickup Workpiece and Drop Zone well inside (62% of) the current mechanism's reach
-            // so pick-and-place is 100% solvable for every caliper width (40mm to 210mm).
+            // and vary their spatial angles/depths across the 5 Robotics Challenge levels!
             float stationRadius = Mathf.Clamp(clampedReach * 0.62f, 0.082f, 0.21f);
-            float zRow = Mathf.Clamp(clampedReach * 0.20f, 0.024f, 0.052f);
-            _workpieceHomeLocalPos = new Vector3(-stationRadius * 0.88f, 0.008f, zRow);
-            _dropZoneLocalPos = new Vector3(stationRadius, 0.001f, zRow);
+            float baseZ = Mathf.Clamp(clampedReach * 0.20f, 0.024f, 0.052f);
+            int lvlIdx = (CurrentChallengeLevel - 1) % 5;
+            float leftZOffset = (lvlIdx == 1) ? 0.022f : ((lvlIdx == 3) ? -0.015f : 0f);
+            float rightZOffset = (lvlIdx == 2) ? 0.025f : ((lvlIdx == 4) ? 0.032f : 0f);
+
+            _workpieceHomeLocalPos = new Vector3(-stationRadius * 0.88f, 0.008f, baseZ + leftZOffset);
+            _dropZoneLocalPos = new Vector3(stationRadius, 0.001f, baseZ + rightZOffset);
 
             if (!_isHoldingWorkpiece && _sampleWorkpiece != null)
             {
@@ -655,32 +725,33 @@ namespace KineticCore.Runtime
                 0.00185f, 36, new Color(0.15f, 0.95f, 1.0f), "KineticCAD Physical AI Active");
             _vrHologramText = tm;
             _vrHudTransform = tm.transform;
-            AttachPanelBackingSlate(_vrHudTransform, new Vector3(0.38f, 0.115f, 0.003f), new Color(0.06f, 0.09f, 0.14f));
+            AttachPanelBackingSlate(_vrHudTransform, new Vector3(0.54f, 0.130f, 0.003f), new Color(0.05f, 0.08f, 0.13f), new Color(0.10f, 0.65f, 0.85f));
 
-            // Right Panel: 3D URDF & Live 60Hz Telemetry Inspector Panel
+            // Right Panel: 3D URDF + STL CAD & Live 60Hz Telemetry Inspector Panel
             TextMesh urdfTm = WorldTextFactory.Create(
                 "VR_3D_URDF_Inspector_HUD", DeskWorkspaceOrigin,
-                new Vector3(0.32f, 0.195f, 0.05f), Quaternion.Euler(0f, -20f, 0f),
-                0.00145f, 32, new Color(0.45f, 1.0f, 0.70f), "ROS 2 / Isaac Sim URDF Inspector");
+                new Vector3(0.34f, 0.195f, 0.05f), Quaternion.Euler(0f, -20f, 0f),
+                0.00145f, 32, new Color(0.45f, 1.0f, 0.70f), "ROS 2 URDF & 3D-Print STL Inspector");
             _urdfInspectorText = urdfTm;
             _urdfInspectorTransform = urdfTm.transform;
-            AttachPanelBackingSlate(_urdfInspectorTransform, new Vector3(0.25f, 0.092f, 0.003f), new Color(0.05f, 0.12f, 0.10f));
+            AttachPanelBackingSlate(_urdfInspectorTransform, new Vector3(0.38f, 0.105f, 0.003f), new Color(0.04f, 0.10f, 0.08f), new Color(0.15f, 0.75f, 0.45f));
 
             // Left Panel: PoE Screw Theory & Mechanical Spec Sheet Panel
             TextMesh specTm = WorldTextFactory.Create(
                 "VR_3D_PoE_SpecSheet_HUD", DeskWorkspaceOrigin,
-                new Vector3(-0.22f, 0.195f, 0.05f), Quaternion.Euler(0f, 20f, 0f),
+                new Vector3(-0.24f, 0.195f, 0.05f), Quaternion.Euler(0f, 20f, 0f),
                 0.00145f, 32, new Color(1.0f, 0.85f, 0.35f), "PoE Screw Kinematics Spec Sheet");
             _specSheetText = specTm;
             _specSheetTransform = specTm.transform;
-            AttachPanelBackingSlate(_specSheetTransform, new Vector3(0.25f, 0.092f, 0.003f), new Color(0.12f, 0.09f, 0.05f));
+            AttachPanelBackingSlate(_specSheetTransform, new Vector3(0.38f, 0.105f, 0.003f), new Color(0.11f, 0.08f, 0.04f), new Color(0.85f, 0.65f, 0.18f));
         }
 
-        private void AttachPanelBackingSlate(Transform textParent, Vector3 scaleMeters, Color slateColor)
+        private void AttachPanelBackingSlate(Transform textParent, Vector3 scaleMeters, Color slateColor, Color rimColor)
         {
             if (textParent == null) return;
             // Compensate for WorldTextFactory's parent scale (0.00185 or 0.00145) so the slate renders at true meter dimensions!
             float parentScale = Mathf.Max(0.0001f, textParent.localScale.x);
+
             GameObject slate = GameObject.CreatePrimitive(PrimitiveType.Cube);
             slate.name = "SpatialPanel_DarkGlassSlate";
             Destroy(slate.GetComponent<Collider>());
@@ -689,6 +760,15 @@ namespace KineticCore.Runtime
             slate.transform.localRotation = Quaternion.identity;
             slate.transform.localScale = scaleMeters / parentScale;
             SetColorSafe(slate.GetComponent<Renderer>(), slateColor);
+
+            GameObject rim = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            rim.name = "SpatialPanel_AccentRim";
+            Destroy(rim.GetComponent<Collider>());
+            rim.transform.SetParent(textParent, false);
+            rim.transform.localPosition = new Vector3(0f, 0f, 0.0105f / parentScale);
+            rim.transform.localRotation = Quaternion.identity;
+            rim.transform.localScale = new Vector3(scaleMeters.x + 0.008f, scaleMeters.y + 0.008f, 0.002f) / parentScale;
+            SetColorSafe(rim.GetComponent<Renderer>(), rimColor);
         }
 
         [Preserve]
@@ -925,11 +1005,11 @@ namespace KineticCore.Runtime
                 double l1 = (CurrentSpec.links != null && CurrentSpec.links.Length > 1) ? CurrentSpec.links[1].lengthM : 0.14;
                 double l2 = (CurrentSpec.links != null && CurrentSpec.links.Length > 2) ? CurrentSpec.links[2].lengthM : 0.11;
                 _urdfInspectorText.text =
-                    $"=== ROS 2 / ISAAC SIM INSPECTOR ===\n" +
-                    $"<robot name=\"{rName}\"> (REP-103)\n" +
+                    $"=== ROS 2 URDF + 3D-PRINT STL INSPECTOR ===\n" +
+                    $"<robot name=\"{rName}\"> | {rName}_cad.stl\n" +
                     $"  Links: L1={l1 * 1000:F0}mm, L2={l2 * 1000:F0}mm, Jaw={ManualTestWidthMm:F0}mm\n" +
                     $"  UDP :9870 -> {{\"q\":[{_theta[0]:F2},{_theta[1]:F2},{_theta[2]:F2}],\"mu\":{CurrentManipulability:F4}}}\n" +
-                    $"  Pick-and-Place: {(_isHoldingWorkpiece ? "CARRYING -> Move to Drop Zone" : $"Ready ({CompletedGraspCount} placed)")}";
+                    $"  Pick-and-Place: {(_isHoldingWorkpiece ? "CARRYING -> Move to Drop Zone" : $"Ready ({CompletedGraspCount} placed | {LastDeliveryStarRating})")}";
             }
 
             if (_specSheetText != null && CurrentSpec != null)
@@ -964,29 +1044,49 @@ namespace KineticCore.Runtime
 
         public async void TriggerAsyncSynthesis(double widthMm)
         {
-            if (IsSynthesisInFlight) { StatusMessage = "Synthesis already running..."; return; }
+            // Always apply the selected topology immediately (<1ms) so hands-first button pokes and caliper locks
+            // give instant 90Hz visual + tactile audio response on Quest 3 without waiting on network latency!
+            UpdateSampleWorkpieceVisual(widthMm);
+            MechanismSpec instantSpec = NebiusKinematicSynthesizer.BuildDeterministicMechanism(widthMm, _topologyVariantIndex);
+            ApplyMechanismSpec(instantSpec);
+            _spawnAnimTimer = 1.0f;
+
+            string[] topoNames = { "Articulated 3R Claw", "SCARA Selective Arm", "Heavy Turret Palletizer", "Precision Wrist Probe" };
+            string topoLabel = topoNames[((_topologyVariantIndex % 4) + 4) % 4];
+            StatusMessage = $"SYNTHESIZED: {topoLabel} ({widthMm:F0}mm jaw span)";
+            WriteDiagnosticState("SynthesizeFast_Instant");
+
+            if (IsSynthesisInFlight) return;
+            var synth = new NebiusKinematicSynthesizer();
+            if (!synth.HasValidKey)
+            {
+                ActiveNebiusModel = "On-Device PoE Parametric Engine";
+                LastSpecSource = "on-device PoE parametric";
+                LastSpecFromAi = false;
+                LastApiLatencyMs = 0;
+                return;
+            }
+
             IsSynthesisInFlight = true;
             try
             {
-                UpdateSampleWorkpieceVisual(widthMm);
-                StatusMessage = $"Synthesizing {widthMm:F0}mm topology #{_topologyVariantIndex + 1}...";
-                var synth = new NebiusKinematicSynthesizer();
-                MechanismSpec spec = await synth.SynthesizeMechanismAsync(widthMm, UserIntentPrompt, _topologyVariantIndex);
+                MechanismSpec aiSpec = await synth.SynthesizeMechanismAsync(widthMm, $"{UserIntentPrompt} ({topoLabel})", _topologyVariantIndex);
                 if (this == null) return;
                 ActiveNebiusModel = synth.LastModelUsed;
                 LastSpecSource = synth.LastSpecSource;
                 LastSpecFromAi = synth.LastSpecFromAi;
                 LastApiLatencyMs = synth.LastLatencyMs;
-                ApplyMechanismSpec(spec);
-                _spawnAnimTimer = 1.0f;
-                string tag = LastSpecFromAi ? "AI spec" : "PoE parametric";
-                StatusMessage = $"FAST SYNTH: Spawned '{spec.robotName}' ({tag}, {LastApiLatencyMs}ms)";
+                if (LastSpecFromAi && aiSpec != null && _topologyVariantIndex == 0)
+                {
+                    ApplyMechanismSpec(aiSpec);
+                    _spawnAnimTimer = 0.7f;
+                }
+                StatusMessage = $"SYNTHESIZED: {topoLabel} ({widthMm:F0}mm | {LastSpecSource}, {LastApiLatencyMs}ms)";
                 WriteDiagnosticState("SynthesizeFast");
             }
             catch (Exception ex)
             {
                 Debug.LogException(ex);
-                StatusMessage = "Synthesis failed - kept previous mechanism";
             }
             finally
             {
@@ -1032,6 +1132,7 @@ namespace KineticCore.Runtime
             {
                 _stepAuditOrExportDone = true;
                 LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, Application.persistentDataPath);
+                string stlPath = UrdfSerializer.SaveStlToFile(CurrentSpec, Application.persistentDataPath);
                 if (Application.isEditor)
                 {
                     try
@@ -1041,20 +1142,21 @@ namespace KineticCore.Runtime
                         {
                             string exportsDir = Path.Combine(rootDir.FullName, "Exports");
                             LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, exportsDir);
+                            stlPath = UrdfSerializer.SaveStlToFile(CurrentSpec, exportsDir);
                         }
                     }
                     catch { }
                 }
-                _exportFlashTimer = 0.8f; // Flash robot links bright emerald green to confirm URDF export!
+                _exportFlashTimer = 0.8f; // Flash robot links bright emerald green to confirm URDF + STL export!
                 SpatialTactileAudio.Instance?.PlayExportSuccess();
-                StatusMessage = $"URDF EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} (ROS 2 & Isaac Sim Ready)";
-                Debug.Log($"[KineticCAD] URDF Exported to: {LastExportedUrdfPath}");
+                StatusMessage = $"EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} + {Path.GetFileName(stlPath)} (ROS 2 & 3D Print Ready)";
+                Debug.Log($"[KineticCAD] Exported URDF: {LastExportedUrdfPath} | STL: {stlPath}");
                 WriteDiagnosticState("ExportUrdf");
             }
             catch (Exception ex)
             {
                 Debug.LogException(ex);
-                StatusMessage = "URDF export failed (see log)";
+                StatusMessage = "URDF/STL export failed (see log)";
             }
         }
 
@@ -1206,6 +1308,7 @@ namespace KineticCore.Runtime
             {
                 _eeMarker.localPosition = new Vector3((float)CurrentEndEffectorPos.X, (float)CurrentEndEffectorPos.Y, (float)CurrentEndEffectorPos.Z);
                 _eeMarker.localRotation = lastRot;
+                UpdateTrajectoryTrail(linkColor);
                 UpdateInteractivePickAndPlace();
             }
         }
@@ -1267,6 +1370,7 @@ namespace KineticCore.Runtime
                     CurrentChallengeLevel = (CompletedGraspCount % ChallengeTitles.Length) + 1;
                     SpatialTactileAudio.Instance?.PlayExportSuccess();
 
+                    UpdateReachEnvelopeAndStationPositions(_lastReachMeters);
                     _sampleWorkpiece.localPosition = _workpieceHomeLocalPos;
                     _sampleWorkpiece.localRotation = Quaternion.identity;
                     if (_workpieceRenderer != null)
