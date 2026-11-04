@@ -44,10 +44,14 @@ namespace KineticCore.Runtime
         private int _lastClickedButtonIdx = -1;
         private int _hoveredButtonIdx = -1;
         private int _gazeFocusedButtonIdx = -1;
-        private bool _prevHandPinch = false;
+        private float _gazePinchHoldTimer = 0f;
+        private bool _gazePinchTriggeredThisHold = false;
         private bool _draggingTargetWithMouse = false;
         private GameObject _fingertipReticle;
         private Renderer _reticleRenderer;
+        private Transform _cachedRigOrigin;
+        private float _nextRigLookupTime = -10f;
+        private float _nextOvrBindLookupTime = -10f;
 
         private bool _prevBtnA, _prevBtnB, _prevBtnX, _prevBtnY;
         private MaterialPropertyBlock _mpb;
@@ -167,15 +171,19 @@ namespace KineticCore.Runtime
 
                 if (hasRightPoint)
                 {
-                    if (TargetTransform != null)
-                    {
-                        TargetTransform.position = rightTipWorld;
-                    }
-
                     if (MechanismController != null && DeskWorkspaceOrigin != null)
                     {
-                        MechanismController.AutoOrbitTarget = false;
-                        MechanismController.ManualTargetLocalPos = DeskWorkspaceOrigin.InverseTransformPoint(rightTipWorld);
+                        Vector3 deskLocal = DeskWorkspaceOrigin.InverseTransformPoint(rightTipWorld);
+                        // Gate IK target updates when the fingertip is poking the front button bar (z < -0.095m)
+                        // so poking a command button never drags the robot arm into the button bar.
+                        bool overButtonBar = (deskLocal.z < -0.095f && deskLocal.y < 0.085f);
+                        if (!overButtonBar && deskLocal.y > -0.04f)
+                        {
+                            MechanismController.AutoOrbitTarget = false;
+                            MechanismController.ManualTargetLocalPos = deskLocal;
+                            if (TargetTransform != null)
+                                TargetTransform.position = rightTipWorld;
+                        }
                     }
 
                     CheckDeskButtonPokes(rightTipWorld);
@@ -324,6 +332,9 @@ namespace KineticCore.Runtime
         private void EnsureOvrHandsBound()
         {
             if (_rightOvrSkeleton != null && _leftOvrHand != null) return;
+            if (Time.unscaledTime < _nextOvrBindLookupTime) return;
+            _nextOvrBindLookupTime = Time.unscaledTime + 1.0f;
+
             foreach (var skel in FindObjectsByType<OVRSkeleton>(FindObjectsInactive.Exclude))
             {
                 if (skel.GetSkeletonType() == OVRSkeleton.SkeletonType.HandRight ||
@@ -342,10 +353,19 @@ namespace KineticCore.Runtime
 
         private Transform FindRigOriginTransform()
         {
+            if (_cachedRigOrigin != null) return _cachedRigOrigin;
+            if (Time.unscaledTime < _nextRigLookupTime) return null;
+            _nextRigLookupTime = Time.unscaledTime + 1.0f;
+
             GameObject trackingSpace = GameObject.Find("TrackingSpace");
-            if (trackingSpace != null) return trackingSpace.transform;
+            if (trackingSpace != null)
+            {
+                _cachedRigOrigin = trackingSpace.transform;
+                return _cachedRigOrigin;
+            }
             GameObject xrOrigin = GameObject.Find("XR Origin (XR Rig)") ?? GameObject.Find("OVRCameraRig") ?? GameObject.Find("OVRCameraRigInteraction");
-            return xrOrigin != null ? xrOrigin.transform : null;
+            _cachedRigOrigin = xrOrigin != null ? xrOrigin.transform : null;
+            return _cachedRigOrigin;
         }
 
         private void CheckDeskButtonPokes(Vector3 fingertipWorld, bool resetColorsIfNotPoked = true)
@@ -402,8 +422,8 @@ namespace KineticCore.Runtime
         }
 
         /// <summary>
-        /// "Eyes & Hands" seated mode: allows looking at any 3D desk button and pinching thumb + index finger
-        /// from a relaxed lap posture (Airplane Seat Test) without lifting your arm to poke.
+        /// "Eyes & Hands" seated mode: allows looking at a 3D desk action button (indices 0..3; ResetPose excluded
+        /// to prevent accidental workspace resets) and holding a thumb + index pinch for 0.26s from a relaxed lap posture.
         /// </summary>
         private void PollGazeAndMicroPinch(bool fingerPokeActive)
         {
@@ -414,9 +434,11 @@ namespace KineticCore.Runtime
             Vector3 eyePos = cam.transform.position;
             Vector3 gazeDir = cam.transform.forward;
             int bestGazeIdx = -1;
-            float bestAngle = 7.2f; // 7.2 degree FoV gaze cone
+            float bestAngle = 6.2f; // Tight 6.2-degree FoV gaze cone for deliberate button selection
 
-            for (int i = 0; i < _buttonTransforms.Length; i++)
+            // Exclude ResetPose (index 4) from gaze-pinch so resting hands never reset the desk anchor
+            int gazeButtonCount = Mathf.Min(_buttonTransforms.Length, 4);
+            for (int i = 0; i < gazeButtonCount; i++)
             {
                 Vector3 toBtn = _buttonTransforms[i].position - eyePos;
                 if (toBtn.sqrMagnitude < 0.001f) continue;
@@ -428,18 +450,32 @@ namespace KineticCore.Runtime
                 }
             }
 
+            bool isPinching = IsEitherHandPinching();
+            if (!isPinching || bestGazeIdx < 0 || bestGazeIdx != _gazeFocusedButtonIdx)
+            {
+                _gazePinchHoldTimer = 0f;
+                if (!isPinching) _gazePinchTriggeredThisHold = false;
+            }
+            else if (!_gazePinchTriggeredThisHold)
+            {
+                _gazePinchHoldTimer += Time.unscaledDeltaTime;
+            }
+
+            float dwellProgress = Mathf.Clamp01(_gazePinchHoldTimer / 0.26f);
+
             if (!fingerPokeActive)
             {
                 for (int i = 0; i < _buttonTransforms.Length; i++)
                 {
                     if (i == _lastClickedButtonIdx && (Time.time - _lastPokeTime) <= 0.28f) continue;
                     bool gazeFocus = (i == bestGazeIdx);
-                    SetColorSafe(_buttonRenderers[i], gazeFocus ? Color.Lerp(_buttonBaseColors[i], Color.white, 0.32f) : _buttonBaseColors[i]);
+                    float highlight = gazeFocus ? (0.30f + 0.55f * dwellProgress) : 0f;
+                    SetColorSafe(_buttonRenderers[i], gazeFocus ? Color.Lerp(_buttonBaseColors[i], Color.white, highlight) : _buttonBaseColors[i]);
                     _buttonTransforms[i].localScale = gazeFocus
-                        ? new Vector3(0.075f, 0.024f, 0.045f)
+                        ? new Vector3(0.075f + 0.004f * dwellProgress, 0.024f - 0.005f * dwellProgress, 0.045f + 0.003f * dwellProgress)
                         : new Vector3(0.072f, 0.022f, 0.042f);
                     Vector3 lp = _buttonTransforms[i].localPosition;
-                    _buttonTransforms[i].localPosition = new Vector3(lp.x, 0f, lp.z);
+                    _buttonTransforms[i].localPosition = new Vector3(lp.x, gazeFocus ? (-0.003f * dwellProgress) : 0f, lp.z);
                 }
 
                 if (bestGazeIdx >= 0 && bestGazeIdx != _gazeFocusedButtonIdx)
@@ -449,12 +485,10 @@ namespace KineticCore.Runtime
             }
             _gazeFocusedButtonIdx = bestGazeIdx;
 
-            bool isPinching = IsEitherHandPinching();
-            bool pinchDown = isPinching && !_prevHandPinch;
-            _prevHandPinch = isPinching;
-
-            if (pinchDown && bestGazeIdx >= 0 && (Time.time - _lastPokeTime) >= ButtonCooldownSec)
+            if (!_gazePinchTriggeredThisHold && _gazePinchHoldTimer >= 0.26f && bestGazeIdx >= 0 && (Time.time - _lastPokeTime) >= ButtonCooldownSec)
             {
+                _gazePinchTriggeredThisHold = true;
+                _gazePinchHoldTimer = 0f;
                 _lastPokeTime = Time.time;
                 _lastClickedButtonIdx = bestGazeIdx;
                 SetColorSafe(_buttonRenderers[bestGazeIdx], Color.white);

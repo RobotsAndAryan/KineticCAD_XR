@@ -28,6 +28,8 @@ public class CaliperController : MonoBehaviour
 
     private OneEuroFilter _widthFilter;
     private XRHandSubsystem _handSubsystem;
+    private Transform _cachedRigOrigin;
+    private float _nextRigLookupTime = -10f;
     private double _anchorWidthMm = 70.0;
     private double _lastSynthesizedWidthMm = -100.0;
     private int _lastTickBucket = -1;
@@ -273,12 +275,21 @@ public class CaliperController : MonoBehaviour
         return false;
     }
 
-    private static Transform FindRigOriginTransform()
+    private Transform FindRigOriginTransform()
     {
+        if (_cachedRigOrigin != null) return _cachedRigOrigin;
+        if (Time.unscaledTime < _nextRigLookupTime) return null;
+        _nextRigLookupTime = Time.unscaledTime + 1.0f;
+
         GameObject trackingSpace = GameObject.Find("TrackingSpace");
-        if (trackingSpace != null) return trackingSpace.transform;
+        if (trackingSpace != null)
+        {
+            _cachedRigOrigin = trackingSpace.transform;
+            return _cachedRigOrigin;
+        }
         GameObject xrOrigin = GameObject.Find("XR Origin (XR Rig)") ?? GameObject.Find("OVRCameraRig") ?? GameObject.Find("OVRCameraRigInteraction");
-        return xrOrigin != null ? xrOrigin.transform : null;
+        _cachedRigOrigin = xrOrigin != null ? xrOrigin.transform : null;
+        return _cachedRigOrigin;
     }
 
     [Preserve]

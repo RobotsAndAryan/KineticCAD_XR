@@ -104,14 +104,26 @@ namespace KineticCore.Runtime
         private bool _stepPuppetDone = false;
         private bool _stepAuditOrExportDone = false;
 
-        // Interactive Pick-and-Place state
+        // Interactive Pick-and-Place & 5-Level Robotics Challenge state
         public int CompletedGraspCount { get; private set; } = 0;
+        public int CurrentChallengeLevel { get; private set; } = 1;
+        public string LastDeliveryStarRating { get; private set; } = "★★★";
+        private static readonly string[] ChallengeTitles =
+        {
+            "Lv1: Standard 70mm Transfer",
+            "Lv2: Wide-Span 145mm SCARA",
+            "Lv3: Micro 40mm Precision Probe",
+            "Lv4: Heavy 210mm Turret Payload",
+            "Lv5: Master Singularity-Free Run"
+        };
         private bool _isHoldingWorkpiece = false;
+        private double _minManipulabilityDuringCarry = 1.0;
         private float _jawCloseFactor = 0f;
         private float _graspCooldownTimer = 0f;
         private float _dropZoneFlashTimer = 0f;
-        private static readonly Vector3 WorkpieceHomeLocalPos = new Vector3(-0.13f, 0.008f, 0.04f);
-        private static readonly Vector3 DropZoneLocalPos = new Vector3(0.22f, 0.001f, 0.04f);
+        private Vector3 _workpieceHomeLocalPos = new Vector3(-0.12f, 0.008f, 0.04f);
+        private Vector3 _dropZoneLocalPos = new Vector3(0.16f, 0.001f, 0.04f);
+        private Transform[] _reachEnvelopeSegments;
 
         // Visual feedback timers for button actions
         private float _spawnAnimTimer = 0f;
@@ -188,7 +200,7 @@ namespace KineticCore.Runtime
 
             StatusMessage = IsFlatEditorMode
                 ? "Click 3D Desk Buttons or LMB-drag in scene | WASD/QE move | RMB orbit"
-                : "VR: poke desk buttons | A synth | B audit | X URDF | Y reset";
+                : "HANDS-FIRST: Point Right Index to puppet | Point Both to caliper-measure | Poke or Gaze+Pinch buttons";
 
             WriteDiagnosticState("Start completed");
         }
@@ -241,11 +253,12 @@ namespace KineticCore.Runtime
                 _headCamera.nearClipPlane = 0.02f;
             }
 
-            // Ensure Meta Quest 3 Insight Passthrough is actively enabled
+            // Ensure Meta Quest 3 Insight Passthrough and 90 Hz refresh rate are actively enabled
             if (!IsFlatEditorMode)
             {
                 try
                 {
+                    OVRPlugin.systemDisplayFrequency = 90.0f;
                     if (OVRManager.instance != null)
                         OVRManager.instance.isInsightPassthroughEnabled = true;
 
@@ -371,70 +384,15 @@ namespace KineticCore.Runtime
             _mrukTableLocked = true;
             _hasCenteredToHmd = true;
             DeskWorkspaceOrigin.SetPositionAndRotation(worldPos, worldRot);
-            SavePersistentDeskAnchor();
-            StatusMessage = $"{sourceLabel} -> Desk Spatial Anchor Locked & Saved";
+            StatusMessage = $"{sourceLabel} -> MRUK Table Anchor Locked";
             WriteDiagnosticState("NotifyDeskAnchored");
-        }
-
-        private void SavePersistentDeskAnchor()
-        {
-            if (DeskWorkspaceOrigin == null) return;
-            try
-            {
-                Vector3 p = DeskWorkspaceOrigin.position;
-                Quaternion r = DeskWorkspaceOrigin.rotation;
-                PlayerPrefs.SetInt("KineticCAD_HasSavedDesk", 1);
-                PlayerPrefs.SetFloat("KineticCAD_DeskPosX", p.x);
-                PlayerPrefs.SetFloat("KineticCAD_DeskPosY", p.y);
-                PlayerPrefs.SetFloat("KineticCAD_DeskPosZ", p.z);
-                PlayerPrefs.SetFloat("KineticCAD_DeskRotX", r.x);
-                PlayerPrefs.SetFloat("KineticCAD_DeskRotY", r.y);
-                PlayerPrefs.SetFloat("KineticCAD_DeskRotZ", r.z);
-                PlayerPrefs.SetFloat("KineticCAD_DeskRotW", r.w);
-                PlayerPrefs.Save();
-            }
-            catch { }
-        }
-
-        private bool TryRestorePersistentDeskAnchor()
-        {
-            if (DeskWorkspaceOrigin == null || IsFlatEditorMode) return false;
-            try
-            {
-                if (PlayerPrefs.GetInt("KineticCAD_HasSavedDesk", 0) == 1)
-                {
-                    Vector3 p = new Vector3(
-                        PlayerPrefs.GetFloat("KineticCAD_DeskPosX", 0f),
-                        PlayerPrefs.GetFloat("KineticCAD_DeskPosY", 0f),
-                        PlayerPrefs.GetFloat("KineticCAD_DeskPosZ", 0f));
-                    Quaternion r = new Quaternion(
-                        PlayerPrefs.GetFloat("KineticCAD_DeskRotX", 0f),
-                        PlayerPrefs.GetFloat("KineticCAD_DeskRotY", 0f),
-                        PlayerPrefs.GetFloat("KineticCAD_DeskRotZ", 0f),
-                        PlayerPrefs.GetFloat("KineticCAD_DeskRotW", 1f));
-                    if (p.sqrMagnitude > 0.001f)
-                    {
-                        DeskWorkspaceOrigin.SetPositionAndRotation(p, r);
-                        _hasCenteredToHmd = true;
-                        StatusMessage = "Restored Persistent Spatial Desk Anchor";
-                        return true;
-                    }
-                }
-            }
-            catch { }
-            return false;
         }
 
         private void OnApplicationPause(bool pauseStatus)
         {
-            if (pauseStatus)
+            if (!pauseStatus)
             {
-                SavePersistentDeskAnchor();
-            }
-            else
-            {
-                // Clean resume: restore persistent spatial anchor and re-enable Insight Passthrough
-                TryRestorePersistentDeskAnchor();
+                // Clean resume from sleep/guardian boundary: re-verify XR camera, 90Hz display, and Insight Passthrough
                 FindHeadCamera();
             }
         }
@@ -474,7 +432,6 @@ namespace KineticCore.Runtime
 
                     DeskWorkspaceOrigin.position = deskPos;
                     DeskWorkspaceOrigin.rotation = Quaternion.LookRotation(forwardFlat, Vector3.up);
-                    SavePersistentDeskAnchor();
                 }
             }
 
@@ -493,7 +450,7 @@ namespace KineticCore.Runtime
             AutoOrbitTarget = false;
             PuppetActive = true;
             _resetHoldTimer = 0.8f;
-            StatusMessage = "RESET POSE -> Desk Spatial Anchor Saved & Home [0.25, 0.45, -0.65] rad";
+            StatusMessage = "RESET POSE -> Calibrated to Desk & Home [0.25, 0.45, -0.65] rad";
             WriteDiagnosticState("ResetPose");
         }
 
@@ -594,7 +551,7 @@ namespace KineticCore.Runtime
             dz.name = "DropZone_TargetPad";
             Destroy(dz.GetComponent<Collider>());
             dz.transform.SetParent(DeskWorkspaceOrigin, false);
-            dz.transform.localPosition = DropZoneLocalPos;
+            dz.transform.localPosition = _dropZoneLocalPos;
             dz.transform.localScale = new Vector3(0.088f, 0.0018f, 0.088f);
             _dropZonePad = dz.transform;
             _dropZoneRenderer = dz.GetComponent<Renderer>();
@@ -602,10 +559,72 @@ namespace KineticCore.Runtime
 
             _dropZoneLabel = WorldTextFactory.Create(
                 "DropZone_Label", DeskWorkspaceOrigin,
-                DropZoneLocalPos + new Vector3(0f, 0.025f, 0f), Quaternion.Euler(35f, 0f, 0f),
-                0.0015f, 32, new Color(0.35f, 1.0f, 0.65f), "DROP ZONE\nGrasps: 0");
+                _dropZoneLocalPos + new Vector3(0f, 0.025f, 0f), Quaternion.Euler(35f, 0f, 0f),
+                0.0015f, 32, new Color(0.35f, 1.0f, 0.65f), "DROP ZONE (Lv1)\nGrasps: 0 | ★★★");
 
+            CreateReachEnvelopeRing();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+        }
+
+        private void CreateReachEnvelopeRing()
+        {
+            const int segmentCount = 20;
+            _reachEnvelopeSegments = new Transform[segmentCount];
+            GameObject ringRoot = new GameObject("KinematicReachEnvelopeRing");
+            ringRoot.transform.SetParent(DeskWorkspaceOrigin, false);
+            ringRoot.transform.localPosition = Vector3.zero;
+            ringRoot.transform.localRotation = Quaternion.identity;
+
+            for (int i = 0; i < segmentCount; i++)
+            {
+                GameObject seg = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                seg.name = $"ReachArcSeg_{i}";
+                Destroy(seg.GetComponent<Collider>());
+                seg.transform.SetParent(ringRoot.transform, false);
+                SetColorSafe(seg.GetComponent<Renderer>(), new Color(0.12f, 0.65f, 0.82f));
+                _reachEnvelopeSegments[i] = seg.transform;
+            }
+            UpdateReachEnvelopeAndStationPositions(0.25f);
+        }
+
+        private void UpdateReachEnvelopeAndStationPositions(float reachMeters)
+        {
+            float clampedReach = Mathf.Clamp(reachMeters, 0.11f, 0.34f);
+
+            // Dynamically place Pickup Workpiece and Drop Zone well inside (62% of) the current mechanism's reach
+            // so pick-and-place is 100% solvable for every caliper width (40mm to 210mm).
+            float stationRadius = Mathf.Clamp(clampedReach * 0.62f, 0.082f, 0.21f);
+            float zRow = Mathf.Clamp(clampedReach * 0.20f, 0.024f, 0.052f);
+            _workpieceHomeLocalPos = new Vector3(-stationRadius * 0.88f, 0.008f, zRow);
+            _dropZoneLocalPos = new Vector3(stationRadius, 0.001f, zRow);
+
+            if (!_isHoldingWorkpiece && _sampleWorkpiece != null)
+            {
+                _sampleWorkpiece.localPosition = _workpieceHomeLocalPos;
+                if (_workpieceLabel != null)
+                    _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, 0.024f, 0f);
+            }
+
+            if (_dropZonePad != null)
+                _dropZonePad.localPosition = _dropZoneLocalPos;
+            if (_dropZoneLabel != null)
+                _dropZoneLabel.transform.localPosition = _dropZoneLocalPos + new Vector3(0f, 0.025f, 0f);
+
+            if (_reachEnvelopeSegments != null)
+            {
+                int count = _reachEnvelopeSegments.Length;
+                float ringRadius = Mathf.Clamp(clampedReach * 0.88f, 0.095f, 0.23f);
+                for (int i = 0; i < count; i++)
+                {
+                    // Render an upper-workspace 200-degree reachability boundary arc on the desk
+                    float t = (float)i / (count - 1);
+                    float angleRad = Mathf.Lerp(-100f, 100f, t) * Mathf.Deg2Rad;
+                    Vector3 pos = new Vector3(Mathf.Sin(angleRad) * ringRadius, 0.0005f, Mathf.Cos(angleRad) * ringRadius * 0.65f);
+                    _reachEnvelopeSegments[i].localPosition = pos;
+                    _reachEnvelopeSegments[i].localRotation = Quaternion.Euler(0f, angleRad * Mathf.Rad2Deg + 90f, 0f);
+                    _reachEnvelopeSegments[i].localScale = new Vector3(0.014f, 0.0012f, 0.003f);
+                }
+            }
         }
 
         private void UpdateSampleWorkpieceVisual(double widthMm)
@@ -613,7 +632,11 @@ namespace KineticCore.Runtime
             if (_sampleWorkpiece == null) return;
             float wMeters = Mathf.Clamp((float)(widthMm * 0.001), 0.02f, 0.25f);
             if (!_isHoldingWorkpiece)
-                _sampleWorkpiece.localPosition = WorkpieceHomeLocalPos;
+            {
+                _sampleWorkpiece.localPosition = _workpieceHomeLocalPos;
+                if (_workpieceLabel != null)
+                    _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, 0.024f, 0f);
+            }
             _sampleWorkpiece.localScale = new Vector3(wMeters, 0.014f, 0.024f);
             if (_workpieceLabel != null)
             {
@@ -632,7 +655,7 @@ namespace KineticCore.Runtime
                 0.00185f, 36, new Color(0.15f, 0.95f, 1.0f), "KineticCAD Physical AI Active");
             _vrHologramText = tm;
             _vrHudTransform = tm.transform;
-            AttachPanelBackingSlate(_vrHudTransform, new Vector3(0.36f, 0.105f, 0.003f), new Color(0.06f, 0.09f, 0.14f));
+            AttachPanelBackingSlate(_vrHudTransform, new Vector3(0.38f, 0.115f, 0.003f), new Color(0.06f, 0.09f, 0.14f));
 
             // Right Panel: 3D URDF & Live 60Hz Telemetry Inspector Panel
             TextMesh urdfTm = WorldTextFactory.Create(
@@ -641,7 +664,7 @@ namespace KineticCore.Runtime
                 0.00145f, 32, new Color(0.45f, 1.0f, 0.70f), "ROS 2 / Isaac Sim URDF Inspector");
             _urdfInspectorText = urdfTm;
             _urdfInspectorTransform = urdfTm.transform;
-            AttachPanelBackingSlate(_urdfInspectorTransform, new Vector3(0.24f, 0.088f, 0.003f), new Color(0.05f, 0.12f, 0.10f));
+            AttachPanelBackingSlate(_urdfInspectorTransform, new Vector3(0.25f, 0.092f, 0.003f), new Color(0.05f, 0.12f, 0.10f));
 
             // Left Panel: PoE Screw Theory & Mechanical Spec Sheet Panel
             TextMesh specTm = WorldTextFactory.Create(
@@ -650,19 +673,21 @@ namespace KineticCore.Runtime
                 0.00145f, 32, new Color(1.0f, 0.85f, 0.35f), "PoE Screw Kinematics Spec Sheet");
             _specSheetText = specTm;
             _specSheetTransform = specTm.transform;
-            AttachPanelBackingSlate(_specSheetTransform, new Vector3(0.23f, 0.088f, 0.003f), new Color(0.12f, 0.09f, 0.05f));
+            AttachPanelBackingSlate(_specSheetTransform, new Vector3(0.25f, 0.092f, 0.003f), new Color(0.12f, 0.09f, 0.05f));
         }
 
         private void AttachPanelBackingSlate(Transform textParent, Vector3 scaleMeters, Color slateColor)
         {
             if (textParent == null) return;
+            // Compensate for WorldTextFactory's parent scale (0.00185 or 0.00145) so the slate renders at true meter dimensions!
+            float parentScale = Mathf.Max(0.0001f, textParent.localScale.x);
             GameObject slate = GameObject.CreatePrimitive(PrimitiveType.Cube);
             slate.name = "SpatialPanel_DarkGlassSlate";
             Destroy(slate.GetComponent<Collider>());
             slate.transform.SetParent(textParent, false);
-            slate.transform.localPosition = new Vector3(0f, 0f, 0.006f);
+            slate.transform.localPosition = new Vector3(0f, 0f, 0.008f / parentScale);
             slate.transform.localRotation = Quaternion.identity;
-            slate.transform.localScale = scaleMeters;
+            slate.transform.localScale = scaleMeters / parentScale;
             SetColorSafe(slate.GetComponent<Renderer>(), slateColor);
         }
 
@@ -703,10 +728,7 @@ namespace KineticCore.Runtime
                     _headCamera != null && _headCamera.transform.position.sqrMagnitude > 0.001f)
                 {
                     _hasCenteredToHmd = true;
-                    if (!TryRestorePersistentDeskAnchor())
-                    {
-                        ResetPose();
-                    }
+                    ResetPose();
                     AutoOrbitTarget = true;
                 }
             }
@@ -880,11 +902,13 @@ namespace KineticCore.Runtime
             string c3 = CompletedGraspCount > 0 ? "✓" : "3";
             string c4 = _stepAuditOrExportDone ? "✓" : "4";
             string workflowBar = $"[{c1}]Synth  [{c2}]Puppet  [{c3}]Pick&Place({CompletedGraspCount})  [{c4}]Audit/URDF";
+            string challengeLabel = ChallengeTitles[Mathf.Clamp(CurrentChallengeLevel - 1, 0, ChallengeTitles.Length - 1)];
+            string healthPlain = CurrentManipulability > 4e-4 ? "OPTIMAL DEXTERITY (Cyan)" : "SINGULARITY RISK (Red)";
 
             _vrHologramText.text =
                 $"KINETIC-CAD XR | SPATIAL PHYSICAL AI STUDIO ({ManualTestWidthMm:F0}mm)\n" +
-                $"Workflow: {workflowBar}\n" +
-                $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | μ={CurrentManipulability:E2}\n" +
+                $"Workflow: {workflowBar} | {challengeLabel} {LastDeliveryStarRating}\n" +
+                $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | {healthPlain} (μ={CurrentManipulability:E2})\n" +
                 $"Audit: {EngineeringAuditReport}\n" +
                 $"{StatusMessage}";
 
@@ -1043,6 +1067,9 @@ namespace KineticCore.Runtime
                 _theta[i] = HomeTheta[i];
 
             ReferenceManipulability = System.Math.Max(1e-5, DlsInverseKinematics.ComputeManipulabilityIndex(CurrentChain, _theta));
+            double l1 = (spec.links != null && spec.links.Length > 1) ? spec.links[1].lengthM : 0.14;
+            double l2 = (spec.links != null && spec.links.Length > 2) ? spec.links[2].lengthM : 0.11;
+            UpdateReachEnvelopeAndStationPositions((float)(l1 + l2));
             RebuildVisualHierarchy(spec);
             CurrentManipulability = ReferenceManipulability;
             CurrentEndEffectorPos = CurrentChain.EndEffectorPosition(_theta);
@@ -1185,7 +1212,7 @@ namespace KineticCore.Runtime
 
         private void UpdateInteractivePickAndPlace()
         {
-            if (_eeMarker == null || _sampleWorkpiece == null) return;
+            if (_eeMarker == null || _sampleWorkpiece == null || _auditSweepTimer > 0f) return;
 
             if (_graspCooldownTimer > 0f)
                 _graspCooldownTimer = Mathf.Max(0f, _graspCooldownTimer - Time.deltaTime);
@@ -1205,16 +1232,20 @@ namespace KineticCore.Runtime
                 if (distToWp < 0.058f && _graspCooldownTimer <= 0f && !AutoOrbitTarget)
                 {
                     _isHoldingWorkpiece = true;
+                    _minManipulabilityDuringCarry = CurrentManipulability;
                     SpatialTactileAudio.Instance?.PlayCaliperLock(_eeMarker.position);
                     if (_workpieceRenderer != null)
                         SetColorSafe(_workpieceRenderer, new Color(0.25f, 1.0f, 0.55f));
                     if (_workpieceLabel != null)
                         _workpieceLabel.text = $"GRASPED ({ManualTestWidthMm:F0} mm)\nMove to Drop Zone ->";
-                    StatusMessage = $"GRASP LOCKED -> Guide workpiece to green Drop Zone pad!";
+                    StatusMessage = $"GRASP LOCKED (Lv{CurrentChallengeLevel}) -> Keep arm cyan & deliver to Drop Zone!";
                 }
             }
             else
             {
+                if (CurrentManipulability < _minManipulabilityDuringCarry)
+                    _minManipulabilityDuringCarry = CurrentManipulability;
+
                 // Carry workpiece inside parallel gripper jaws
                 _sampleWorkpiece.position = _eeMarker.position + _eeMarker.right * 0.014f;
                 _sampleWorkpiece.rotation = _eeMarker.rotation;
@@ -1224,29 +1255,31 @@ namespace KineticCore.Runtime
 
                 float distToDrop = Vector2.Distance(
                     new Vector2(eeLocal.x, eeLocal.z),
-                    new Vector2(DropZoneLocalPos.x, DropZoneLocalPos.z));
+                    new Vector2(_dropZoneLocalPos.x, _dropZoneLocalPos.z));
 
-                if (distToDrop < 0.068f && eeLocal.y < 0.085f)
+                if (distToDrop < 0.068f && eeLocal.y < 0.095f)
                 {
                     _isHoldingWorkpiece = false;
                     _graspCooldownTimer = 1.4f;
                     _dropZoneFlashTimer = 0.9f;
                     CompletedGraspCount++;
+                    LastDeliveryStarRating = _minManipulabilityDuringCarry > 4.5e-4 ? "★★★" : (_minManipulabilityDuringCarry > 2.2e-4 ? "★★☆" : "★☆☆");
+                    CurrentChallengeLevel = (CompletedGraspCount % ChallengeTitles.Length) + 1;
                     SpatialTactileAudio.Instance?.PlayExportSuccess();
 
-                    _sampleWorkpiece.localPosition = WorkpieceHomeLocalPos;
+                    _sampleWorkpiece.localPosition = _workpieceHomeLocalPos;
                     _sampleWorkpiece.localRotation = Quaternion.identity;
                     if (_workpieceRenderer != null)
                         SetColorSafe(_workpieceRenderer, new Color(0.18f, 0.55f, 0.72f));
                     if (_workpieceLabel != null)
                     {
-                        _workpieceLabel.transform.localPosition = new Vector3(-0.13f, 0.032f, 0.04f);
+                        _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, 0.024f, 0f);
                         _workpieceLabel.text = $"PICKUP WORKPIECE\n{ManualTestWidthMm:F0} mm";
                     }
                     if (_dropZoneLabel != null)
-                        _dropZoneLabel.text = $"DROP ZONE\nGrasps: {CompletedGraspCount}";
+                        _dropZoneLabel.text = $"DROP ZONE (Lv{CurrentChallengeLevel})\nGrasps: {CompletedGraspCount} | {LastDeliveryStarRating}";
 
-                    StatusMessage = $"PICK & PLACE COMPLETE (#{CompletedGraspCount}) -> Workpiece delivered!";
+                    StatusMessage = $"DELIVERY #{CompletedGraspCount} COMPLETE ({LastDeliveryStarRating}) -> Advanced to {ChallengeTitles[CurrentChallengeLevel - 1]}!";
                 }
             }
 
