@@ -38,9 +38,12 @@ namespace KineticCore.Runtime
         private Transform[] _buttonTransforms;
         private Renderer[] _buttonRenderers;
         private Color[] _buttonBaseColors;
-        private readonly string[] _buttonActions = { "SynthesizeFast", "SynthesizeDeep", "ExportUrdf", "TogglePuppet", "ResetPose" };
-        private readonly string[] _buttonLabels = { "SYNTHESIZE\nTOPOLOGY", "KINEMATIC\nAUDIT", "EXPORT\nURDF + STL", "TOGGLE\nPUPPET", "CALIBRATE\nDESK" };
+        private readonly string[] _buttonActions = { "SynthesizeFast", "ToggleEnvelopeRecording", "ExecuteGhostCarve", "SynthesizeDeep", "ExportUrdf", "ResetPose" };
+        private readonly string[] _buttonLabels = { "SYNTHESIZE\nTOPOLOGY", "RECORD\nENVELOPE", "GHOST CARVE\n(CBF h>=0)", "KINEMATIC\nAUDIT", "EXPORT\nURDF + CBF", "CALIBRATE\nDESK" };
         private float _lastPokeTime = -10f;
+        private float _lastMicrogestureTime = -10f;
+        private OVRHand.MicrogestureType _prevRightMicrogesture = OVRHand.MicrogestureType.NoGesture;
+        private OVRHand.MicrogestureType _prevLeftMicrogesture = OVRHand.MicrogestureType.NoGesture;
         private int _lastClickedButtonIdx = -1;
         private int _hoveredButtonIdx = -1;
         private int _gazeFocusedButtonIdx = -1;
@@ -110,11 +113,12 @@ namespace KineticCore.Runtime
             _buttonRenderers = new Renderer[count];
             _buttonBaseColors = new Color[]
             {
-                new Color(0.0f, 0.75f, 0.95f), // Fast Synth (Cyan)
-                new Color(0.65f, 0.25f, 0.95f), // Deep Audit (Purple)
-                new Color(0.15f, 0.85f, 0.35f), // Export URDF (Green)
-                new Color(0.95f, 0.65f, 0.10f), // Toggle Puppet (Amber)
-                new Color(0.85f, 0.25f, 0.25f)  // Reset Pose (Red)
+                new Color(0.0f, 0.75f, 0.95f), // Synthesize Topology (Cyan)
+                new Color(0.95f, 0.55f, 0.12f), // Record Envelope W_i (Amber)
+                new Color(0.95f, 0.20f, 0.65f), // Ghost Carve CBF (Magenta)
+                new Color(0.65f, 0.25f, 0.95f), // Kinematic Audit (Purple)
+                new Color(0.15f, 0.85f, 0.35f), // Export URDF + CBF (Green)
+                new Color(0.85f, 0.25f, 0.25f)  // Calibrate Desk (Red)
             };
 
             GameObject barRoot = new GameObject("VR_Desk_PokeButtonBar");
@@ -124,13 +128,13 @@ namespace KineticCore.Runtime
 
             for (int i = 0; i < count; i++)
             {
-                float xOffset = (i - (count - 1) * 0.5f) * 0.085f;
+                float xOffset = (i - (count - 1) * 0.5f) * 0.076f;
 
                 GameObject btn = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 btn.name = $"VRButton_{_buttonActions[i]}";
                 btn.transform.SetParent(barRoot.transform, false);
                 btn.transform.localPosition = new Vector3(xOffset, 0f, 0f);
-                btn.transform.localScale = new Vector3(0.072f, 0.022f, 0.042f);
+                btn.transform.localScale = new Vector3(0.066f, 0.022f, 0.042f);
 
                 _buttonTransforms[i] = btn.transform;
                 _buttonRenderers[i] = btn.GetComponent<Renderer>();
@@ -139,7 +143,7 @@ namespace KineticCore.Runtime
                 WorldTextFactory.Create(
                     $"Label_{_buttonActions[i]}", barRoot.transform,
                     new Vector3(xOffset, 0.025f, 0.0f), Quaternion.Euler(45f, 0f, 0f),
-                    0.0022f, 36, Color.white, _buttonLabels[i]);
+                    0.0020f, 34, Color.white, _buttonLabels[i]);
             }
         }
 
@@ -196,6 +200,7 @@ namespace KineticCore.Runtime
                 }
 
                 PollGazeAndMicroPinch(hasRightPoint || hasLeftPoint);
+                PollMetaMicrogestures();
                 PollControllerAndPinchShortcuts();
             }
 #if UNITY_EDITOR
@@ -436,8 +441,8 @@ namespace KineticCore.Runtime
             int bestGazeIdx = -1;
             float bestAngle = 6.2f; // Tight 6.2-degree FoV gaze cone for deliberate button selection
 
-            // Exclude ResetPose (index 4) from gaze-pinch so resting hands never reset the desk anchor
-            int gazeButtonCount = Mathf.Min(_buttonTransforms.Length, 4);
+            // Exclude Calibrate Desk / ResetPose (last index) from gaze-pinch so resting hands never reset the desk anchor
+            int gazeButtonCount = Mathf.Max(0, _buttonTransforms.Length - 1);
             for (int i = 0; i < gazeButtonCount; i++)
             {
                 Vector3 toBtn = _buttonTransforms[i].position - eyePos;
@@ -589,17 +594,81 @@ namespace KineticCore.Runtime
             }
         }
 
+        /// <summary>
+        /// Native Meta Quest 3 OpenXR Microgestures (OVRHand.GetMicrogestureType):
+        /// - SwipeLeft / SwipeRight: Scrubs active caliper/mechanism dimension by -5mm / +5mm with zero pinch jitter.
+        /// - SwipeForward: Triggers Fast Synthesis (spawning resized mechanism).
+        /// - SwipeBackward: Toggles Swept-Volume Ghost Recording (W_i) on/off.
+        /// - ThumbTap: Executes [GHOST CARVE] (Boolean-carving the AEGIS Payload Bay Housing Block & verifying CBF h(x) >= 0).
+        /// </summary>
+        private void PollMetaMicrogestures()
+        {
+            if (MechanismController == null) return;
+            EnsureOvrHandsBound();
+
+            CheckSingleHandMicrogesture(_rightOvrHand, ref _prevRightMicrogesture);
+            CheckSingleHandMicrogesture(_leftOvrHand, ref _prevLeftMicrogesture);
+        }
+
+        private void CheckSingleHandMicrogesture(OVRHand hand, ref OVRHand.MicrogestureType prevGesture)
+        {
+            if (hand == null || !hand.IsTracked)
+            {
+                prevGesture = OVRHand.MicrogestureType.NoGesture;
+                return;
+            }
+
+            OVRHand.MicrogestureType mg = OVRHand.MicrogestureType.NoGesture;
+            try
+            {
+                mg = hand.GetMicrogestureType();
+            }
+            catch
+            {
+                return;
+            }
+
+            if (mg != prevGesture && mg != OVRHand.MicrogestureType.NoGesture && mg != OVRHand.MicrogestureType.Invalid)
+            {
+                if ((Time.unscaledTime - _lastMicrogestureTime) >= 0.30f)
+                {
+                    _lastMicrogestureTime = Time.unscaledTime;
+                    switch (mg)
+                    {
+                        case OVRHand.MicrogestureType.SwipeLeft:
+                            MechanismController.ScrubDimensionMm(-5.0);
+                            break;
+                        case OVRHand.MicrogestureType.SwipeRight:
+                            MechanismController.ScrubDimensionMm(+5.0);
+                            break;
+                        case OVRHand.MicrogestureType.SwipeForward:
+                            MechanismController.SynthesizeFast();
+                            break;
+                        case OVRHand.MicrogestureType.SwipeBackward:
+                            MechanismController.ToggleEnvelopeRecording();
+                            break;
+                        case OVRHand.MicrogestureType.ThumbTap:
+                            MechanismController.ExecuteGhostCarve();
+                            break;
+                    }
+                }
+            }
+            prevGesture = mg;
+        }
+
         private void InvokeControllerCommand(string actionName)
         {
             if (MechanismController == null) return;
 
             switch (actionName)
             {
-                case "SynthesizeFast": MechanismController.SynthesizeFast(); return;
-                case "SynthesizeDeep": MechanismController.SynthesizeDeep(); return;
-                case "ExportUrdf":     MechanismController.ExportUrdf();     return;
-                case "TogglePuppet":   MechanismController.TogglePuppet();   return;
-                case "ResetPose":      MechanismController.ResetPose();      return;
+                case "SynthesizeFast":          MechanismController.SynthesizeFast();          return;
+                case "ToggleEnvelopeRecording": MechanismController.ToggleEnvelopeRecording(); return;
+                case "ExecuteGhostCarve":       MechanismController.ExecuteGhostCarve();       return;
+                case "SynthesizeDeep":          MechanismController.SynthesizeDeep();          return;
+                case "ExportUrdf":              MechanismController.ExportUrdf();              return;
+                case "TogglePuppet":            MechanismController.TogglePuppet();            return;
+                case "ResetPose":               MechanismController.ResetPose();               return;
                 default: Debug.LogWarning($"[QuestBridge] Unknown command '{actionName}'"); return;
             }
         }

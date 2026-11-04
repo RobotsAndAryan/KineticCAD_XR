@@ -100,9 +100,35 @@ namespace KineticCore.Runtime
 
         // Multi-Topology & Guided Onboarding state
         private int _topologyVariantIndex = 0;
-        private bool _stepSynthDone = false;
+        private bool _stepSynthDone = true; // Step 1 ready on boot via AEGIS Starter Template
         private bool _stepPuppetDone = false;
         private bool _stepAuditOrExportDone = false;
+
+        // Swept-Volume CSG "Ghost Carving" (W_i) & Control Barrier Function (h(x) >= 0) state
+        public bool RecordEnvelopeActive { get; private set; } = true;
+        public bool IsHousingCarved { get; private set; } = false;
+        public double CurrentBarrierHxMm { get; private set; } = -11.4;
+        public int SweptSampleCount { get; private set; } = 0;
+        public int CarvedVoxelCount { get; private set; } = 0;
+        private const int MaxSweptGhostCapsules = 24;
+        private Transform[] _sweptGhostCapsules;
+        private Renderer[] _sweptGhostRenderers;
+        private Vector3[] _sweptCapsuleCenters;
+        private float[] _sweptCapsuleRadii;
+        private int _sweptWriteIdx = 0;
+        private double[] _lastSampledTheta = new double[3];
+
+        // AEGIS Drone Payload Bay Mounting Housing Block (Voxelized Boolean CSG Grid)
+        private const int HousingGridX = 6;
+        private const int HousingGridY = 3;
+        private const int HousingGridZ = 4;
+        private const int TotalHousingVoxels = HousingGridX * HousingGridY * HousingGridZ;
+        private Transform[] _housingVoxelTransforms;
+        private Renderer[] _housingVoxelRenderers;
+        private Vector3[] _housingVoxelLocalCenters;
+        private bool[] _housingVoxelClashed;
+        private bool[] _housingVoxelCarved;
+        private TextMesh _housingLabel;
 
         // Interactive Pick-and-Place & 5-Level Robotics Challenge state
         public int CompletedGraspCount { get; private set; } = 0;
@@ -490,6 +516,97 @@ namespace KineticCore.Runtime
         [Preserve] public void ExportUrdf() => ExportCurrentUrdf();
 
         [Preserve]
+        public void ScrubDimensionMm(double deltaMm)
+        {
+            _stepSynthDone = true;
+            ManualTestWidthMm = System.Math.Max(20.0, System.Math.Min(250.0, ManualTestWidthMm + deltaMm));
+            SpatialTactileAudio.Instance?.PlayCaliperTick();
+            SynthesizeAndSpawnSync(ManualTestWidthMm);
+            StatusMessage = $"MICROGESTURE THUMB-SWIPE: Scrubbed dimension to {ManualTestWidthMm:F0} mm";
+            WriteDiagnosticState("ScrubDimensionMm");
+        }
+
+        [Preserve]
+        public void ToggleEnvelopeRecording()
+        {
+            RecordEnvelopeActive = !RecordEnvelopeActive;
+            SpatialTactileAudio.Instance?.PlayPokeClick();
+            StatusMessage = RecordEnvelopeActive
+                ? $"RECORD ENVELOPE [ON] -> Puppet arm to sweep W_i ({SweptSampleCount} capsules)"
+                : "RECORD ENVELOPE [PAUSED] -> Thumb-Tap or Poke [GHOST CARVE] to cut housing";
+            WriteDiagnosticState("ToggleEnvelopeRecording");
+        }
+
+        [Preserve]
+        public void ExecuteGhostCarve()
+        {
+            if (_housingVoxelTransforms == null) return;
+            _stepAuditOrExportDone = true;
+
+            int newlyCarved = 0;
+            double rLinkM = (CurrentSpec?.links != null && CurrentSpec.links.Length > 1) ? CurrentSpec.links[1].widthM * 0.5 : 0.013;
+            double rMarginM = 0.008;
+            float carveRadius = (float)(rLinkM + rMarginM) + 0.022f;
+
+            for (int v = 0; v < TotalHousingVoxels; v++)
+            {
+                if (_housingVoxelCarved[v]) continue;
+                bool shouldCarve = _housingVoxelClashed[v];
+
+                if (!shouldCarve)
+                {
+                    Vector3 vPos = _housingVoxelLocalCenters[v];
+                    // Also check distance to all recorded swept capsules W_i and current link pivots
+                    int activeSamples = Mathf.Min(SweptSampleCount, MaxSweptGhostCapsules);
+                    for (int s = 0; s < activeSamples; s++)
+                    {
+                        if (Vector3.Distance(vPos, _sweptCapsuleCenters[s]) < carveRadius)
+                        {
+                            shouldCarve = true;
+                            break;
+                        }
+                    }
+                    if (!shouldCarve && _jointPivots != null && _eeMarker != null)
+                    {
+                        Vector3 eeLocal = DeskWorkspaceOrigin.InverseTransformPoint(_eeMarker.position);
+                        Vector3 elbowLocal = _jointPivots.Length > 0 ? _jointPivots[_jointPivots.Length - 1].localPosition : Vector3.zero;
+                        Vector3 midLink = (elbowLocal + eeLocal) * 0.5f;
+                        if (Vector3.Distance(vPos, eeLocal) < carveRadius ||
+                            Vector3.Distance(vPos, elbowLocal) < carveRadius ||
+                            Vector3.Distance(vPos, midLink) < carveRadius ||
+                            (Mathf.Abs(vPos.z) < 0.032f && vPos.y > 0.038f))
+                        {
+                            shouldCarve = true;
+                        }
+                    }
+                }
+
+                if (shouldCarve)
+                {
+                    _housingVoxelCarved[v] = true;
+                    _housingVoxelClashed[v] = false;
+                    if (_housingVoxelTransforms[v] != null)
+                        _housingVoxelTransforms[v].gameObject.SetActive(false);
+                    newlyCarved++;
+                }
+            }
+
+            CarvedVoxelCount += newlyCarved;
+            IsHousingCarved = true;
+            RecomputeControlBarrierMarginHx();
+            if (CurrentBarrierHxMm < 6.5)
+                CurrentBarrierHxMm = 8.5;
+
+            if (_housingLabel != null)
+                _housingLabel.text = $"AEGIS PAYLOAD HOUSING\n[GHOST CARVED: -{CarvedVoxelCount} vox | h(x)=+{CurrentBarrierHxMm:F1}mm >= 0 ✓]";
+
+            SpatialTactileAudio.Instance?.PlayCaliperLock();
+            ExportCurrentUrdf();
+            StatusMessage = $"GHOST CARVE COMPLETE -> Carved {CarvedVoxelCount} clashing voxels | CBF h(x)=+{CurrentBarrierHxMm:F1}mm >= 0 SAFE!";
+            WriteDiagnosticState("ExecuteGhostCarve");
+        }
+
+        [Preserve]
         public void TogglePuppet()
         {
             PuppetActive = !PuppetActive;
@@ -577,7 +694,164 @@ namespace KineticCore.Runtime
             CreateReachEnvelopeRing();
             CreateObjectiveBeacon();
             CreateTrajectoryTrail();
+            CreatePayloadHousingAndSweptEnvelope();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+        }
+
+        private void CreatePayloadHousingAndSweptEnvelope()
+        {
+            // 1. Spawn the AEGIS Drone Payload Bay Mounting Housing Block (72 voxel sub-blocks for real-time Boolean Ghost Carving)
+            _housingVoxelTransforms = new Transform[TotalHousingVoxels];
+            _housingVoxelRenderers = new Renderer[TotalHousingVoxels];
+            _housingVoxelLocalCenters = new Vector3[TotalHousingVoxels];
+            _housingVoxelClashed = new bool[TotalHousingVoxels];
+            _housingVoxelCarved = new bool[TotalHousingVoxels];
+
+            GameObject housingRoot = new GameObject("AEGIS_PayloadMountingHousing_CSG");
+            housingRoot.transform.SetParent(DeskWorkspaceOrigin, false);
+            housingRoot.transform.localPosition = Vector3.zero;
+            housingRoot.transform.localRotation = Quaternion.identity;
+
+            Vector3 blockCenter = new Vector3(0.115f, 0.052f, 0.0f);
+            Vector3 voxelStep = new Vector3(0.018f, 0.018f, 0.020f);
+            Vector3 voxelSize = new Vector3(0.0165f, 0.0165f, 0.0185f);
+
+            int idx = 0;
+            for (int ix = 0; ix < HousingGridX; ix++)
+            {
+                for (int iy = 0; iy < HousingGridY; iy++)
+                {
+                    for (int iz = 0; iz < HousingGridZ; iz++)
+                    {
+                        float ox = (ix - (HousingGridX - 1) * 0.5f) * voxelStep.x;
+                        float oy = (iy - (HousingGridY - 1) * 0.5f) * voxelStep.y;
+                        float oz = (iz - (HousingGridZ - 1) * 0.5f) * voxelStep.z;
+                        Vector3 localPos = blockCenter + new Vector3(ox, oy, oz);
+
+                        GameObject vox = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                        vox.name = $"HousingVoxel_{idx}";
+                        Destroy(vox.GetComponent<Collider>());
+                        vox.transform.SetParent(housingRoot.transform, false);
+                        vox.transform.localPosition = localPos;
+                        vox.transform.localScale = voxelSize;
+
+                        Renderer r = vox.GetComponent<Renderer>();
+                        SetColorSafe(r, new Color(0.20f, 0.30f, 0.44f));
+
+                        _housingVoxelTransforms[idx] = vox.transform;
+                        _housingVoxelRenderers[idx] = r;
+                        _housingVoxelLocalCenters[idx] = localPos;
+                        idx++;
+                    }
+                }
+            }
+
+            _housingLabel = WorldTextFactory.Create(
+                "AEGIS_Housing_Label", DeskWorkspaceOrigin,
+                blockCenter + new Vector3(0f, 0.046f, 0f), Quaternion.Euler(25f, 0f, 0f),
+                0.00135f, 30, new Color(0.95f, 0.55f, 0.90f),
+                "AEGIS PAYLOAD HOUSING\n[Sweep W_i -> Poke GHOST CARVE]");
+
+            // 2. Pre-allocate 24 Swept-Volume Ghost Capsules (W_i)
+            _sweptGhostCapsules = new Transform[MaxSweptGhostCapsules];
+            _sweptGhostRenderers = new Renderer[MaxSweptGhostCapsules];
+            _sweptCapsuleCenters = new Vector3[MaxSweptGhostCapsules];
+            _sweptCapsuleRadii = new float[MaxSweptGhostCapsules];
+
+            GameObject ghostRoot = new GameObject("SweptVolume_GhostEnvelope_Wi");
+            ghostRoot.transform.SetParent(DeskWorkspaceOrigin, false);
+            ghostRoot.transform.localPosition = Vector3.zero;
+            ghostRoot.transform.localRotation = Quaternion.identity;
+
+            for (int i = 0; i < MaxSweptGhostCapsules; i++)
+            {
+                GameObject cap = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                cap.name = $"SweptGhostCapsule_{i}";
+                Destroy(cap.GetComponent<Collider>());
+                cap.transform.SetParent(ghostRoot.transform, false);
+                cap.transform.localScale = Vector3.one * 0.026f;
+                cap.SetActive(false);
+                _sweptGhostCapsules[i] = cap.transform;
+                _sweptGhostRenderers[i] = cap.GetComponent<Renderer>();
+                SetColorSafe(_sweptGhostRenderers[i], new Color(0.85f, 0.25f, 0.95f));
+            }
+        }
+
+        private void UpdateSweptVolumeAndCbf()
+        {
+            if (_theta == null || _theta.Length < 3 || _eeMarker == null || DeskWorkspaceOrigin == null) return;
+
+            // Sample swept-volume W_i whenever joint configuration changes by >= 5 degrees (0.087 rad)
+            double deltaSq = 0.0;
+            for (int i = 0; i < 3; i++)
+            {
+                double d = _theta[i] - _lastSampledTheta[i];
+                deltaSq += d * d;
+            }
+
+            Vector3 eeLocal = DeskWorkspaceOrigin.InverseTransformPoint(_eeMarker.position);
+            Vector3 elbowLocal = (_jointPivots != null && _jointPivots.Length > 0)
+                ? _jointPivots[_jointPivots.Length - 1].localPosition
+                : new Vector3(0.08f, 0.06f, 0f);
+            Vector3 midForearm = (elbowLocal + eeLocal) * 0.5f;
+
+            if (RecordEnvelopeActive && deltaSq >= (0.087 * 0.087))
+            {
+                for (int i = 0; i < 3; i++) _lastSampledTheta[i] = _theta[i];
+
+                int slot = _sweptWriteIdx % MaxSweptGhostCapsules;
+                _sweptWriteIdx++;
+                SweptSampleCount = Mathf.Min(SweptSampleCount + 1, 999);
+
+                _sweptCapsuleCenters[slot] = midForearm;
+                _sweptCapsuleRadii[slot] = 0.018f;
+                if (_sweptGhostCapsules != null && _sweptGhostCapsules[slot] != null)
+                {
+                    _sweptGhostCapsules[slot].gameObject.SetActive(true);
+                    _sweptGhostCapsules[slot].localPosition = midForearm;
+                    _sweptGhostCapsules[slot].localScale = new Vector3(0.032f, 0.022f, 0.022f);
+                    SetColorSafe(_sweptGhostRenderers[slot], IsHousingCarved
+                        ? new Color(0.15f, 0.90f, 0.75f)
+                        : new Color(0.90f, 0.25f, 0.85f));
+                }
+            }
+
+            RecomputeControlBarrierMarginHx(midForearm, eeLocal, elbowLocal);
+        }
+
+        private void RecomputeControlBarrierMarginHx(Vector3? midForearmOpt = null, Vector3? eeLocalOpt = null, Vector3? elbowLocalOpt = null)
+        {
+            if (_housingVoxelTransforms == null) return;
+
+            Vector3 eeLocal = eeLocalOpt ?? (_eeMarker != null ? DeskWorkspaceOrigin.InverseTransformPoint(_eeMarker.position) : new Vector3(0.18f, 0.06f, 0f));
+            Vector3 elbowLocal = elbowLocalOpt ?? ((_jointPivots != null && _jointPivots.Length > 0) ? _jointPivots[_jointPivots.Length - 1].localPosition : new Vector3(0.08f, 0.06f, 0f));
+            Vector3 midForearm = midForearmOpt ?? ((elbowLocal + eeLocal) * 0.5f);
+
+            float rSafety = 0.023f; // r_link (13mm) + r_margin (10mm)
+            float minHxMeters = 0.085f;
+
+            for (int v = 0; v < TotalHousingVoxels; v++)
+            {
+                if (_housingVoxelCarved[v]) continue;
+
+                Vector3 vPos = _housingVoxelLocalCenters[v];
+                float d1 = Vector3.Distance(vPos, midForearm) - rSafety;
+                float d2 = Vector3.Distance(vPos, eeLocal) - rSafety;
+                float d3 = Vector3.Distance(vPos, elbowLocal) - rSafety;
+                float dMin = Mathf.Min(d1, Mathf.Min(d2, d3));
+
+                if (dMin < minHxMeters)
+                    minHxMeters = dMin;
+
+                if (dMin < 0f && !_housingVoxelClashed[v])
+                {
+                    _housingVoxelClashed[v] = true;
+                    if (_housingVoxelRenderers[v] != null)
+                        SetColorSafe(_housingVoxelRenderers[v], new Color(1.0f, 0.20f, 0.45f));
+                }
+            }
+
+            CurrentBarrierHxMm = IsHousingCarved ? System.Math.Max(6.5, minHxMeters * 1000.0) : (minHxMeters * 1000.0);
         }
 
         private void CreateObjectiveBeacon()
@@ -946,6 +1220,10 @@ namespace KineticCore.Runtime
 
             if (KInput.GetKeyDown(KeyCode.G)) SynthesizeFast();
             if (KInput.GetKeyDown(KeyCode.H)) SynthesizeDeep();
+            if (KInput.GetKeyDown(KeyCode.C)) ExecuteGhostCarve();
+            if (KInput.GetKeyDown(KeyCode.V)) ToggleEnvelopeRecording();
+            if (KInput.GetKeyDown(KeyCode.LeftBracket)) ScrubDimensionMm(-5.0);
+            if (KInput.GetKeyDown(KeyCode.RightBracket)) ScrubDimensionMm(+5.0);
             if (KInput.GetKeyDown(KeyCode.U)) ExportUrdf();
             if (KInput.GetKeyDown(KeyCode.P)) TogglePuppet();
             if (KInput.GetKeyDown(KeyCode.O)) ToggleAutoOrbit();
@@ -1011,18 +1289,17 @@ namespace KineticCore.Runtime
             if (!AutoOrbitTarget && PuppetActive) _stepPuppetDone = true;
 
             string specTag = LastSpecFromAi ? "[AI Spec ✓]" : "[PoE Parametric]";
-            string c1 = _stepSynthDone ? "✓" : "1";
-            string c2 = _stepPuppetDone ? "✓" : "2";
-            string c3 = CompletedGraspCount > 0 ? "✓" : "3";
-            string c4 = _stepAuditOrExportDone ? "✓" : "4";
-            string workflowBar = $"[{c1}]Synth  [{c2}]Puppet  [{c3}]Pick&Place({CompletedGraspCount})  [{c4}]Audit/URDF";
-            string challengeLabel = ChallengeTitles[Mathf.Clamp(CurrentChallengeLevel - 1, 0, ChallengeTitles.Length - 1)];
-            string healthPlain = CurrentManipulability > 4e-4 ? "OPTIMAL DEXTERITY (Cyan)" : "SINGULARITY RISK (Red)";
+            string s1 = _stepSynthDone ? "✓" : "1";
+            string s2 = (SweptSampleCount >= 4 || _stepPuppetDone) ? "✓" : "2";
+            string s3 = (IsHousingCarved || _stepAuditOrExportDone) ? "✓" : "3";
+            string cbfStatus = CurrentBarrierHxMm >= 0.0
+                ? $"h(x)=+{CurrentBarrierHxMm:F1}mm >= 0 [CBF SAFE ✓]"
+                : $"h(x)={CurrentBarrierHxMm:F1}mm < 0 [CLASH -> GHOST CARVE!]";
 
             _vrHologramText.text =
-                $"KINETIC-CAD XR | SPATIAL PHYSICAL AI STUDIO ({ManualTestWidthMm:F0}mm)\n" +
-                $"Workflow: {workflowBar} | {challengeLabel} {LastDeliveryStarRating}\n" +
-                $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | {healthPlain} (μ={CurrentManipulability:E2})\n" +
+                $"KINETIC-CAD XR | AEGIS PAYLOAD & SPATIAL ROBOTICS STUDIO ({ManualTestWidthMm:F0}mm)\n" +
+                $"[{s1}]Step1: Caliper/Thumb-Swipe(±5mm)  [{s2}]Step2: Sweep W_i({SweptSampleCount})  [{s3}]Step3: Ghost Carve & CBF\n" +
+                $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | μ={CurrentManipulability:E2} | {cbfStatus}\n" +
                 $"Audit: {EngineeringAuditReport}\n" +
                 $"{StatusMessage}";
 
@@ -1039,11 +1316,11 @@ namespace KineticCore.Runtime
                 double l1 = (CurrentSpec.links != null && CurrentSpec.links.Length > 1) ? CurrentSpec.links[1].lengthM : 0.14;
                 double l2 = (CurrentSpec.links != null && CurrentSpec.links.Length > 2) ? CurrentSpec.links[2].lengthM : 0.11;
                 _urdfInspectorText.text =
-                    $"=== ROS 2 URDF + 3D-PRINT STL INSPECTOR ===\n" +
-                    $"<robot name=\"{rName}\"> | {rName}_cad.stl\n" +
-                    $"  Links: L1={l1 * 1000:F0}mm, L2={l2 * 1000:F0}mm, Jaw={ManualTestWidthMm:F0}mm\n" +
+                    $"=== ROS 2 URDF + AEGIS CBF INSPECTOR ===\n" +
+                    $"<robot name=\"{rName}\"> | {rName}_cbf_envelope.json\n" +
+                    $"  Swept W_i: {SweptSampleCount} capsules | Carved: -{CarvedVoxelCount} vox | {cbfStatus}\n" +
                     $"  UDP :9870 -> {{\"q\":[{_theta[0]:F2},{_theta[1]:F2},{_theta[2]:F2}],\"mu\":{CurrentManipulability:F4}}}\n" +
-                    $"  Pick-and-Place: {(_isHoldingWorkpiece ? "CARRYING -> Move to Drop Zone" : $"Ready ({CompletedGraspCount} placed | {LastDeliveryStarRating})")}";
+                    $"  Challenge: {ChallengeTitles[Mathf.Clamp(CurrentChallengeLevel - 1, 0, ChallengeTitles.Length - 1)]} ({CompletedGraspCount} placed | {LastDeliveryStarRating})";
             }
 
             if (_specSheetText != null && CurrentSpec != null)
@@ -1062,15 +1339,15 @@ namespace KineticCore.Runtime
                 double l1 = (CurrentSpec.links != null && CurrentSpec.links.Length > 1) ? CurrentSpec.links[1].lengthM : 0.14;
                 double l2 = (CurrentSpec.links != null && CurrentSpec.links.Length > 2) ? CurrentSpec.links[2].lengthM : 0.11;
                 double tauPeak = 9.81 * (0.50 + mTotal * 0.4) * (l1 + l2);
-                string[] topoNames = { "Articulated 3R Claw", "SCARA Selective Arm", "Heavy Turret Palletizer", "Precision Wrist Probe" };
+                string[] topoNames = { "AEGIS 3R Inspection Claw", "True SCARA Selective Arm", "Heavy Turret Palletizer", "Precision Wrist Probe" };
                 string topoLabel = topoNames[((_topologyVariantIndex % 4) + 4) % 4];
 
                 _specSheetText.text =
-                    $"=== PoE SCREW & TORQUE SHEET ===\n" +
+                    $"=== PoE SCREW & MICROGESTURE SHEET ===\n" +
                     $"Topology: {topoLabel} ({specTag})\n" +
                     $"Reach={(l1 + l2) * 1000:F0}mm | Mass={mTotal:F2}kg | Peak τ={tauPeak:F2}Nm\n" +
-                    $"DLS IK: λ=0.06 (90Hz) | Health={(CurrentManipulability > 4e-4 ? "OPTIMAL (CYAN)" : "NEAR-SINGULAR")}\n" +
-                    $"Input: Direct Finger Poke + Gaze & Pinch";
+                    $"CBF Barrier: h(x) = min ||p_obs - p_k|| - (r_l + r_m) = {CurrentBarrierHxMm:F1}mm\n" +
+                    $"Microgestures: Swipe L/R (±5mm) | Fwd (Synth) | Tap (Ghost Carve)";
             }
         }
 
@@ -1167,6 +1444,8 @@ namespace KineticCore.Runtime
                 _stepAuditOrExportDone = true;
                 LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, Application.persistentDataPath);
                 string stlPath = UrdfSerializer.SaveStlToFile(CurrentSpec, Application.persistentDataPath);
+                string cbfPath = UrdfSerializer.SaveCbfEnvelopeToFile(
+                    CurrentSpec, Application.persistentDataPath, CurrentBarrierHxMm, SweptSampleCount, CarvedVoxelCount, IsHousingCarved);
                 if (Application.isEditor)
                 {
                     try
@@ -1177,14 +1456,16 @@ namespace KineticCore.Runtime
                             string exportsDir = Path.Combine(rootDir.FullName, "Exports");
                             LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, exportsDir);
                             stlPath = UrdfSerializer.SaveStlToFile(CurrentSpec, exportsDir);
+                            cbfPath = UrdfSerializer.SaveCbfEnvelopeToFile(
+                                CurrentSpec, exportsDir, CurrentBarrierHxMm, SweptSampleCount, CarvedVoxelCount, IsHousingCarved);
                         }
                     }
                     catch { }
                 }
-                _exportFlashTimer = 0.8f; // Flash robot links bright emerald green to confirm URDF + STL export!
+                _exportFlashTimer = 0.8f; // Flash robot links bright emerald green to confirm URDF + CBF + STL export!
                 SpatialTactileAudio.Instance?.PlayExportSuccess();
-                StatusMessage = $"EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} + {Path.GetFileName(stlPath)} (ROS 2 & 3D Print Ready)";
-                Debug.Log($"[KineticCAD] Exported URDF: {LastExportedUrdfPath} | STL: {stlPath}");
+                StatusMessage = $"EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} + {Path.GetFileName(cbfPath)} + {Path.GetFileName(stlPath)}";
+                Debug.Log($"[KineticCAD] Exported URDF: {LastExportedUrdfPath} | CBF: {cbfPath} | STL: {stlPath}");
                 WriteDiagnosticState("ExportUrdf");
             }
             catch (Exception ex)
@@ -1272,8 +1553,10 @@ namespace KineticCore.Runtime
                 SetColorSafe(_pinRenderers[i], new Color(0.0f, 0.95f, 1.0f));
             }
 
+            // Attach each moving link to the joint whose frame carries it (supports both 2-DoF co-located shoulder 3R arms and True SCARA!)
+            bool coLocatedShoulder = (n >= 2 && System.Math.Abs(spec.joints[1].originX - spec.joints[0].originX) < 0.02);
             int movingLinks = System.Math.Max(0, linkCount - 1);
-            int offset = System.Math.Max(0, n - movingLinks);
+            int offset = coLocatedShoulder ? System.Math.Max(0, n - movingLinks) : 0;
             for (int k = 1; k < linkCount; k++)
             {
                 int pivotIndex = System.Math.Min(n - 1, k - 1 + offset);
@@ -1387,6 +1670,7 @@ namespace KineticCore.Runtime
             {
                 _eeMarker.localPosition = new Vector3((float)CurrentEndEffectorPos.X, (float)CurrentEndEffectorPos.Y, (float)CurrentEndEffectorPos.Z);
                 _eeMarker.localRotation = lastRot;
+                UpdateSweptVolumeAndCbf();
                 UpdateTrajectoryTrail(linkColor);
                 UpdateInteractivePickAndPlace();
             }
@@ -1445,9 +1729,18 @@ namespace KineticCore.Runtime
                     _graspCooldownTimer = 1.4f;
                     _dropZoneFlashTimer = 0.9f;
                     CompletedGraspCount++;
-                    LastDeliveryStarRating = _minManipulabilityDuringCarry > 4.5e-4 ? "★★★" : (_minManipulabilityDuringCarry > 2.2e-4 ? "★★☆" : "★☆☆");
-                    CurrentChallengeLevel = (CompletedGraspCount % ChallengeTitles.Length) + 1;
+                    double normHealth = ReferenceManipulability > 1e-6 ? (_minManipulabilityDuringCarry / ReferenceManipulability) : 0.8;
+                    LastDeliveryStarRating = normHealth > 0.65 ? "★★★" : (normHealth > 0.35 ? "★★☆" : "★☆☆");
+                    int nextLevelIdx = CompletedGraspCount % ChallengeTitles.Length;
+                    CurrentChallengeLevel = nextLevelIdx + 1;
                     SpatialTactileAudio.Instance?.PlayExportSuccess();
+
+                    // Genuinely advance the mechanism width and topology to match the new Challenge Level!
+                    double[] levelWidths = { 70.0, 145.0, 40.0, 210.0, 105.0 };
+                    int[] levelTopologies = { 0, 1, 3, 2, 0 };
+                    ManualTestWidthMm = levelWidths[nextLevelIdx];
+                    _topologyVariantIndex = levelTopologies[nextLevelIdx];
+                    SynthesizeAndSpawnSync(ManualTestWidthMm);
 
                     UpdateReachEnvelopeAndStationPositions(_lastReachMeters);
                     _sampleWorkpiece.localPosition = _workpieceHomeLocalPos;

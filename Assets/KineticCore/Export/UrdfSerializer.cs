@@ -56,8 +56,9 @@ namespace KineticCore.Export
             // ---- Assign each moving link to the joint that carries it (mirrors the Unity visual hierarchy)
             var linksOnJoint = new List<int>[n];
             for (int i = 0; i < n; i++) linksOnJoint[i] = new List<int>();
+            bool coLocatedShoulder = (n >= 2 && System.Math.Abs(spec.joints[1].originX - spec.joints[0].originX) < 0.02);
             int movingLinks = System.Math.Max(0, linkCount - 1);
-            int offset = System.Math.Max(0, n - movingLinks);
+            int offset = coLocatedShoulder ? System.Math.Max(0, n - movingLinks) : 0;
             for (int k = 1; k < linkCount && n > 0; k++)
             {
                 int pivot = System.Math.Min(n - 1, k - 1 + offset);
@@ -258,6 +259,49 @@ namespace KineticCore.Export
             string fileName = Sanitize(string.IsNullOrEmpty(spec.robotName) ? "kinetic_cad_mechanism" : spec.robotName);
             string filePath = Path.Combine(directoryPath, $"{fileName}_cad.stl");
             File.WriteAllText(filePath, SerializeToAsciiStl(spec));
+            return filePath;
+        }
+
+        /// <summary>
+        /// Exports the Swept-Volume Control Barrier Function (CBF: h(x) = min ||p_obs - p_k(theta)||_2 - (r_link + r_margin) >= 0)
+        /// envelope package for AEGIS FlightOS and ROS 2 collision-free trajectory verification.
+        /// </summary>
+        public static string SaveCbfEnvelopeToFile(
+            MechanismSpec spec,
+            string directoryPath,
+            double minClearanceMm,
+            int sweptCapsuleCount,
+            int carvedVoxelCount,
+            bool housingCarved)
+        {
+            if (!Directory.Exists(directoryPath))
+                Directory.CreateDirectory(directoryPath);
+
+            string fileName = Sanitize(string.IsNullOrEmpty(spec?.robotName) ? "kinetic_cad_mechanism" : spec.robotName);
+            string filePath = Path.Combine(directoryPath, $"{fileName}_cbf_envelope.json");
+
+            double l1 = (spec?.links != null && spec.links.Length > 1) ? spec.links[1].lengthM : 0.14;
+            double l2 = (spec?.links != null && spec.links.Length > 2) ? spec.links[2].lengthM : 0.11;
+            double rLinkMm = (spec?.links != null && spec.links.Length > 1) ? spec.links[1].widthM * 500.0 : 13.0;
+            double rMarginMm = 6.0;
+
+            StringBuilder sb = new StringBuilder(1024);
+            sb.AppendLine("{");
+            sb.AppendLine($"  \"schema\": \"AEGIS_FlightOS_SweptVolume_CBF_v1\",");
+            sb.AppendLine($"  \"robotName\": \"{fileName}\",");
+            sb.AppendLine(string.Format(Inv, "  \"targetCaliperWidthMm\": {0:F2},", spec != null ? spec.targetCaliperWidthMm : 70.0));
+            sb.AppendLine($"  \"controlBarrierFunction\": \"h(x) = min_k ||p_obs - p_k(theta)||_2 - (r_link + r_margin) >= 0\",");
+            sb.AppendLine(string.Format(Inv, "  \"rLinkMm\": {0:F2},", rLinkMm));
+            sb.AppendLine(string.Format(Inv, "  \"rSafetyMarginMm\": {0:F2},", rMarginMm));
+            sb.AppendLine(string.Format(Inv, "  \"maxReachMm\": {0:F2},", (l1 + l2) * 1000.0));
+            sb.AppendLine($"  \"sweptCapsuleSamples\": {sweptCapsuleCount},");
+            sb.AppendLine($"  \"ghostCarvedVoxelsRemoved\": {carvedVoxelCount},");
+            sb.AppendLine($"  \"housingZeroClashVerified\": {(housingCarved ? "true" : "false")},");
+            sb.AppendLine(string.Format(Inv, "  \"minBarrierClearanceHxMm\": {0:F2},", minClearanceMm));
+            sb.AppendLine($"  \"cbfSatisfied\": {(minClearanceMm >= 0.0 ? "true" : "false")}");
+            sb.AppendLine("}");
+
+            File.WriteAllText(filePath, sb.ToString());
             return filePath;
         }
 

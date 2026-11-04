@@ -23,7 +23,7 @@ namespace KineticCore.Editor
 
             bool dirty = false;
 
-            SyncNebiusKeyToResources();
+            RemoveBundledNebiusKeyFromResources();
             if (!PlayerSettings.Android.forceInternetPermission)
             {
                 PlayerSettings.Android.forceInternetPermission = true;
@@ -102,26 +102,14 @@ namespace KineticCore.Editor
             }
         }
 
-        private static void SyncNebiusKeyToResources()
+        private static void RemoveBundledNebiusKeyFromResources()
         {
             try
             {
-                DirectoryInfo root = Directory.GetParent(Application.dataPath);
-                if (root == null) return;
-                string rootKey = Path.Combine(root.FullName, "nebius_key.txt");
                 string resKey = Path.Combine(Application.dataPath, "Resources", "nebius_key.txt");
-                if (File.Exists(rootKey))
+                if (File.Exists(resKey))
                 {
-                    string keyText = File.ReadAllText(rootKey).Trim();
-                    if (!string.IsNullOrEmpty(keyText))
-                    {
-                        bool needsWrite = !File.Exists(resKey) || File.ReadAllText(resKey).Trim() != keyText;
-                        if (needsWrite)
-                        {
-                            File.WriteAllText(resKey, keyText);
-                            AssetDatabase.ImportAsset("Assets/Resources/nebius_key.txt");
-                        }
-                    }
+                    AssetDatabase.DeleteAsset("Assets/Resources/nebius_key.txt");
                 }
             }
             catch { }

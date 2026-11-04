@@ -11,7 +11,7 @@ KineticCAD XR: Hands-First Spatial Robotics & CAD Studio
 
 ### **Submission Tagline** *(139 / 140 characters)*
 ```text
-Hands-first MR robotics CAD studio: pinch-measure objects, synthesize 4 robot topologies, pick-and-place at 90Hz, and export URDF + STL CAD.
+Hands-first MR robotics CAD studio: OpenXR microgestures, swept-volume Ghost Carving (CBF h(x)>=0), 90Hz PoE IK, and ROS 2 URDF/STL export.
 ```
 
 ### **Track**
@@ -25,35 +25,32 @@ Hands-first MR robotics CAD studio: pinch-measure objects, synthesize 4 robot to
 
 ---
 
-## 2. Project Description *(494 words — strictly under the 500-word limit, hitting all 4 Judging Pillars & Special Awards)*
+## 2. Project Description *(495 words — strictly under the 500-word limit, hitting all 4 Judging Pillars & Special Awards)*
 
 ```markdown
 ### Inspiration
-Designing custom robotic mechanisms and articulated end-effectors for real-world objects traditionally requires days of fragmented desktop work: measuring parts with calipers, modeling in flat 2D CAD, deriving forward/inverse kinematics matrices by hand, and exporting meshes and XML URDF files for fabrication and simulation. We asked: *What if your physical desk and your bare hands were the entire robotics CAD studio?*
+Standing mid-air "Iron Man" CAD tools fail within 120 seconds due to "Gorilla Arm" shoulder fatigue and "Heisenberg" pinch jitter ($2\text{–}6\text{ mm}$ index shift during pinch selection). Furthermore, engineers cannot visually verify if an articulated robot arm or drone payload claw will collide with its mounting housing across its full motion range. We asked: *What if your physical desk and bare hands were an industrial spatial robotics & clearance-carving studio?*
 
-We built **KineticCAD XR** for Meta Quest to transform any seated desk into a multi-panel, hands-first spatial engineering studio—collapsing days of mechanical design and kinematic math into a three-minute mixed reality workflow.
+We built **KineticCAD XR** for Meta Quest 3 to transform any seated tabletop into a controller-free, 90 Hz spatial engineering studio.
 
 ### How We Built It (Engineered for Meta’s 4 Judging Pillars)
-1. **Seated & Airplane-Seat Optimized (MRUK Table Locking & Left-Hand Calibration):**
-   Every interaction lives within a compact 0.5-meter tabletop workspace directly in front of the seated user at 90 Hz. Using Meta’s **MRUK** scene understanding (`DeskWorkspaceInitializer`), the workbench automatically locks onto the user’s physical table surface, or calibrates flush to their real tabletop in Insight Passthrough by resting the left hand on the desk and poking **Reset Pose**.
+1. **Seated Ergonomics (MRUK Table Anchoring & 90-Second AEGIS Starter Template):**
+   Using Meta’s **MRUK** (`MRUKAnchor.SceneLabels.TABLE`), the workbench locks onto your physical desk so your elbows rest comfortably on the tabletop. On boot, it immediately loads the **AEGIS Aerial Payload Claw Starter Template**, an uncarved **Payload Bay Mounting Housing Block**, and a 3-step interactive checklist.
 
-2. **3-Panel Curved Spatial Workspace, Reachability Ring & 3D Heatmap Trail:**
-   Three Horizon-OS-inspired dark-slate floating panels with glowing accent rims surround a 20-segment **Kinematic Reachability Envelope Ring** on the desk and a **3D Manipulability Trajectory Trail** in mid-air:
-   - **Left Panel (PoE Screw & Torque Spec Sheet):** Displays active robot topology, reach radius, link mass ($\text{kg}$), and static peak torque ($\text{N}\cdot\text{m}$).
-   - **Center Panel (Main Telemetry, 4-Step Checklist & 5-Level Challenge):** Tracks live onboarding (`[✓]Synth -> [✓]Puppet -> [✓]Pick&Place -> [✓]Audit/URDF`) and a **5-Level Spatial Robotics Challenge** with star ratings (`★★★`) scored by minimum Yoshikawa manipulability maintained during transport.
-   - **Right Panel (ROS 2 URDF & 3D-Print STL Inspector):** Displays the generated REP-103 `<robot>` XML, watertight `<robot>_cad.stl` 3D-printable mesh status, and live 60 Hz `/joint_states` UDP stream.
+2. **Zero-Jitter Meta OpenXR Microgestures + Bimanual $1\text{€}$ Caliper:**
+   - **Bimanual Caliper:** Point both index fingers on either side of a real object on your desk to measure its width (projected orthogonally onto the desk plane with a $1\text{€}$ filter, $f_{c,\min}=1.0\text{ Hz}, \beta=0.003$).
+   - **Native `OVRHand` Microgestures:** Separates positioning from confirmation—**Thumb-Swipe Left/Right** scrubs mechanism dimensions by $\pm 5.0\text{ mm}$, **Thumb-Swipe Forward** synthesizes topologies, **Thumb-Swipe Backward** toggles envelope recording, and **Thumb-Tap** executes **`[GHOST CARVE]`** with zero pinch jitter.
 
-3. **Complete CAD-to-Hardware Workflow in Under 3 Minutes ("The One Bus Stop Test"):**
-   - **Bimanual Spatial Caliper:** Hold both index fingers on either side of a real object on your desk to measure and lock its millimeter width with tactile audio ticks.
-   - **Multi-Topology Synthesis:** Synthesizes 4 distinct 3-DoF industrial topologies (**Articulated 3R Claw**, **SCARA Selective Arm**, **Heavy Turret Palletizer**, and **Precision Wrist Probe**) with parallel gripper jaws scaled to your object.
-   - **One-Poke URDF + 3D-Printable STL Export:** Poking **Export URDF** writes both a ROS 2 / Isaac Sim `.urdf` and a watertight millimeter-scale ASCII `.stl` CAD mesh ready for 3D printing.
+3. **Swept-Volume CSG "Ghost Carving" ($\mathcal{W}_i$) & Control Barrier Function ($h(\mathbf{x}) \ge 0$):**
+   As you puppet the arm with your right index fingertip through its trajectory $\boldsymbol{\theta}(t)$, KineticCAD samples moving link capsules every $5^\circ$ to render a 3D **Swept-Volume Ghost Envelope ($\mathcal{W}_i$)** and flags clashing housing voxels in magenta ($h(\mathbf{x}) < 0$). Triggering **`[GHOST CARVE]`** performs a real-time 3D Voxel Boolean subtraction—carving a zero-interference clearance slot through the mounting block on your desk and verifying the Control Barrier Function safety margin:
+   $$h(\mathbf{x}) = \min_{k \in \mathcal{W}_i} \|\mathbf{p}_{\text{obs}} - \mathbf{p}_k(\boldsymbol{\theta})\|_2 - (r_{\text{link}} + r_{\text{margin}}) \ge 0$$
 
-4. **100% Entrant-Built Kinematics Core ("The Take It Away Test"):**
-   Even completely offline with zero cloud connectivity, KineticCAD XR runs a custom double-precision C# **Product of Exponentials (PoE)** screw-theory engine in $se(3)$, a **Damped Least-Squares (DLS)** analytical inverse kinematics solver ($\lambda = 0.06$) at 90 FPS, and real-time **Yoshikawa manipulability** ($\mu = \sqrt{\det(JJ^T)}$) shader and trail feedback (`OPTIMAL DEXTERITY` to `SINGULARITY RISK`).
+4. **100% Entrant-Built $SE(3)$ Kinematics Core & Sim-to-Real Pipeline:**
+   Runs a custom double-precision C# **Product of Exponentials (PoE)** screw-theory engine, **Damped Least-Squares (DLS)** IK ($\lambda = 0.06$) at 90 FPS, and **Yoshikawa manipulability** ($\mu = \sqrt{\det(JJ^T)}$) shader feedback across 4 topologies (**AEGIS 3R Claw**, **True SCARA**, **Heavy Turret**, **Precision Probe**). One poke exports compliant `.urdf` files, `.stl` meshes, and `_cbf_envelope.json` while streaming 60 Hz UDP telemetry (`:9870`) to ROS 2 and NVIDIA Isaac Sim.
 
 ### Future Plans for Improvement
-- **Co-Located Multi-Engineer Rooms:** Shared spatial anchors allowing two engineers to inspect and puppet the same mechanism simultaneously.
-- **Direct Microcontroller Serial Bridge:** Live USB/Wi-Fi servo angle streaming to physical Dynamixel/ESP32 robot arms on the desk.
+- **Co-Located Multi-Engineer Rooms:** Shared spatial anchors for collaborative mechanism inspection.
+- **Direct Microcontroller Bridge:** Live Wi-Fi servo streaming to physical Dynamixel/ESP32 hardware on the desk.
 ```
 
 ---
@@ -62,18 +59,17 @@ We built **KineticCAD XR** for Meta Quest to transform any seated desk into a mu
 
 ```markdown
 ### How Hand Interactions & Gaze Are Implemented
-KineticCAD XR is 100% controller-free end-to-end, combining direct physical manipulation with seated "Eyes & Hands" gaze-pinch ergonomics:
+KineticCAD XR is 100% controller-free end-to-end, combining direct physical manipulation, native Meta OpenXR Microgestures, and seated "Eyes & Hands" gaze-pinch ergonomics:
 
-1. **Dual-Modal Button Activation (Workspace-Gated Poke + 260ms Dwell Gaze & Pinch):**
-   - **Direct Tactile Poke:** Users can physically poke the 5 desk buttons with either index finger; buttons highlight on hover, physically depress `-5.5 mm` into the desk, and fire a procedural 35 ms dual-tone mechanical switch click (`SpatialTactileAudio`). Spatial workspace gating prevents button pokes along the front bar from dragging the robot IK target.
-   - **Eyes & Hands (Gaze + 260ms Dwell Lap Pinch):** For effortless seated use ("Airplane Seat Test"), looking at any action button within a $6.2^\circ$ FoV gaze cone and holding a thumb-to-index pinch for `260 ms` smoothly charges and triggers the button while resting hands in the lap (with `Reset Pose` excluded from gaze-pinch to prevent accidental resets).
-2. **Index-Only Pose Disambiguation (`HandFingertipReader`):**
-   Evaluates finger curl ratios on OpenXR `XRHandSubsystem` and `OVRSkeleton` so fingertip puppeteering only engages when the index finger is deliberately extended and middle/ring/pinky fingers are curled.
-3. **Bimanual Precision Caliper (`CaliperController`):**
-   Extending both index fingers spawns a One-Euro filtered ($f_{min}=1.0\text{ Hz}, \beta=0.003$) caliper bridge projected orthogonally onto the desk plane to eliminate vertical tilt bias, complete with 5 mm ratchet ticks and a harmonic C6->G6 lock chime.
+1. **Zero-Jitter Meta OpenXR Microgestures (`OVRHand.GetMicrogestureType`):**
+   Eliminates "Heisenberg" pinch jitter by decoupling 3D index-finger positioning from command execution: **Thumb-Swipe Left/Right** scrubs mechanism width by $\pm 5.0\text{ mm}$, **Thumb-Swipe Forward** triggers topology synthesis, **Thumb-Swipe Backward** toggles Swept-Volume $\mathcal{W}_i$ recording, and **Thumb-Tap** executes **`[GHOST CARVE]`** Boolean subtraction on the payload housing block.
+2. **Dual-Modal 6-Button Desk Bar (Workspace-Gated Poke + 260ms Dwell Gaze & Pinch):**
+   Users can physically poke the 6 desk buttons (`-5.5 mm` depression + procedural 35 ms mechanical switch click) or look within a $6.2^\circ$ FoV gaze cone and hold a 260 ms lap pinch for effortless seated control.
+3. **Bimanual $1\text{€}$ Caliper & Index-Only Pose Disambiguation:**
+   Evaluates finger curl ratios on `XRHandSubsystem` and `OVRSkeleton` for intentional index-finger puppeteering and orthogonal tabletop caliper measurement.
 
 ### What Excites Us About the Future of VR
-Hands-first Mixed Reality transforms spatial computing from passive media consumption into a **physical engineering superpower**—letting creators measure the real world with bare hands and immediately synthesize, test, and export real robotics hardware.
+Hands-first Mixed Reality + OpenXR Microgestures transform spatial computing into a **precision physical engineering superpower**—letting creators measure real hardware, carve zero-clash swept-volume housings, and export verified robotics packages with their bare hands.
 ```
 
 ---
