@@ -125,6 +125,9 @@ namespace KineticCore.Runtime
         private Vector3 _dropZoneLocalPos = new Vector3(0.16f, 0.001f, 0.04f);
         private float _lastReachMeters = 0.25f;
         private Transform[] _reachEnvelopeSegments;
+        private Renderer[] _reachEnvelopeRenderers;
+        private Transform _objectiveBeaconRing;
+        private Renderer _objectiveBeaconRenderer;
 
         // 3D Spatial Manipulability Trajectory Heatmap Trail
         private const int TrailLength = 14;
@@ -572,8 +575,21 @@ namespace KineticCore.Runtime
                 0.0015f, 32, new Color(0.35f, 1.0f, 0.65f), "DROP ZONE (Lv1)\nGrasps: 0 | ★★★");
 
             CreateReachEnvelopeRing();
+            CreateObjectiveBeacon();
             CreateTrajectoryTrail();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+        }
+
+        private void CreateObjectiveBeacon()
+        {
+            GameObject beacon = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            beacon.name = "ObjectiveBeacon_Ring";
+            Destroy(beacon.GetComponent<Collider>());
+            beacon.transform.SetParent(DeskWorkspaceOrigin, false);
+            beacon.transform.localScale = new Vector3(0.048f, 0.0018f, 0.048f);
+            _objectiveBeaconRing = beacon.transform;
+            _objectiveBeaconRenderer = beacon.GetComponent<Renderer>();
+            SetColorSafe(_objectiveBeaconRenderer, new Color(0.20f, 0.95f, 1.0f));
         }
 
         private void CreateTrajectoryTrail()
@@ -635,6 +651,7 @@ namespace KineticCore.Runtime
         {
             const int segmentCount = 20;
             _reachEnvelopeSegments = new Transform[segmentCount];
+            _reachEnvelopeRenderers = new Renderer[segmentCount];
             GameObject ringRoot = new GameObject("KinematicReachEnvelopeRing");
             ringRoot.transform.SetParent(DeskWorkspaceOrigin, false);
             ringRoot.transform.localPosition = Vector3.zero;
@@ -646,7 +663,8 @@ namespace KineticCore.Runtime
                 seg.name = $"ReachArcSeg_{i}";
                 Destroy(seg.GetComponent<Collider>());
                 seg.transform.SetParent(ringRoot.transform, false);
-                SetColorSafe(seg.GetComponent<Renderer>(), new Color(0.12f, 0.65f, 0.82f));
+                _reachEnvelopeRenderers[i] = seg.GetComponent<Renderer>();
+                SetColorSafe(_reachEnvelopeRenderers[i], new Color(0.12f, 0.65f, 0.82f));
                 _reachEnvelopeSegments[i] = seg.transform;
             }
             UpdateReachEnvelopeAndStationPositions(0.25f);
@@ -867,6 +885,22 @@ namespace KineticCore.Runtime
                     0.045f * Mathf.Sin(t * 2f),
                     0.050f * Mathf.Sin(t * 2f + 0.8f),
                     0.09f * Mathf.Sin(t));
+            }
+            else if (PuppetActive && _auditSweepTimer <= 0f)
+            {
+                // Smart Tabletop Grasp Compliance: when the user hovers their fingertip or mouse over the
+                // active Pickup Workpiece or Drop Zone in XZ, smoothly dip the target down to grasp/place height
+                // so they never have to scrape their finger against the physical desk!
+                Vector3 activeStation = _isHoldingWorkpiece ? _dropZoneLocalPos : _workpieceHomeLocalPos;
+                float xzDist = Vector2.Distance(
+                    new Vector2(ManualTargetLocalPos.x, ManualTargetLocalPos.z),
+                    new Vector2(activeStation.x, activeStation.z));
+                if (xzDist < 0.078f && _graspCooldownTimer <= 0f)
+                {
+                    float dipFactor = 1f - Mathf.Clamp01(xzDist / 0.078f);
+                    float desiredY = Mathf.Lerp(ManualTargetLocalPos.y, 0.016f, dipFactor * 0.85f);
+                    ManualTargetLocalPos = new Vector3(ManualTargetLocalPos.x, desiredY, ManualTargetLocalPos.z);
+                }
             }
 
             if (TargetTransform != null)
@@ -1162,6 +1196,16 @@ namespace KineticCore.Runtime
 
         private void ApplyMechanismSpec(MechanismSpec spec)
         {
+            if (_isHoldingWorkpiece)
+            {
+                _isHoldingWorkpiece = false;
+                if (_sampleWorkpiece != null)
+                {
+                    _sampleWorkpiece.localRotation = Quaternion.identity;
+                    if (_workpieceRenderer != null)
+                        SetColorSafe(_workpieceRenderer, new Color(0.18f, 0.55f, 0.72f));
+                }
+            }
             CurrentSpec = spec;
             CurrentChain = spec.ToPoEChain(out _minLimits, out _maxLimits);
             _theta = new double[CurrentChain.Joints.Length];
@@ -1303,6 +1347,41 @@ namespace KineticCore.Runtime
                 _jointPivots[i].localRotation = lastRot;
                 if (_linkRenderers[i] != null)
                     SetColorSafe(_linkRenderers[i], linkColor);
+
+                if (_pinRenderers != null && i < _pinRenderers.Length && _pinRenderers[i] != null &&
+                    _minLimits != null && _maxLimits != null && i < _minLimits.Length)
+                {
+                    double span = System.Math.Max(0.2, _maxLimits[i] - _minLimits[i]);
+                    double margin = System.Math.Min(_theta[i] - _minLimits[i], _maxLimits[i] - _theta[i]);
+                    float limitSafety = Mathf.Clamp01((float)(margin / (span * 0.22)));
+                    Color pinCol = Color.Lerp(new Color(1.0f, 0.35f, 0.15f), new Color(0.0f, 0.95f, 1.0f), limitSafety);
+                    SetColorSafe(_pinRenderers[i], pinCol);
+                }
+            }
+
+            if (_reachEnvelopeRenderers != null)
+            {
+                for (int i = 0; i < _reachEnvelopeRenderers.Length; i++)
+                {
+                    float wave = 0.70f + 0.30f * Mathf.Sin(Time.time * 3.2f - i * 0.32f);
+                    SetColorSafe(_reachEnvelopeRenderers[i], linkColor * wave);
+                }
+            }
+
+            if (_objectiveBeaconRing != null)
+            {
+                Vector3 beaconBase = _isHoldingWorkpiece ? _dropZoneLocalPos : _workpieceHomeLocalPos;
+                float bob = 0.044f + 0.006f * Mathf.Sin(Time.time * 4.2f);
+                _objectiveBeaconRing.localPosition = beaconBase + new Vector3(0f, bob, 0f);
+                float pulse = 0.044f + 0.006f * Mathf.Cos(Time.time * 4.2f);
+                _objectiveBeaconRing.localScale = new Vector3(pulse, 0.0018f, pulse);
+                if (_objectiveBeaconRenderer != null)
+                {
+                    Color beaconCol = _isHoldingWorkpiece
+                        ? new Color(0.20f, 1.0f, 0.55f)
+                        : new Color(0.20f, 0.92f, 1.0f);
+                    SetColorSafe(_objectiveBeaconRenderer, beaconCol);
+                }
             }
             if (_eeMarker != null)
             {
