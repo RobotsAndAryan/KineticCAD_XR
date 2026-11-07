@@ -104,9 +104,14 @@ namespace KineticCore.Runtime
         private bool _stepPuppetDone = false;
         private bool _stepAuditOrExportDone = false;
 
-        // "Spatial Fusion 360" Real-World 3D Object Capture, Parametric CAD Features, Snap Modules & 1:1 Hand Print Preview
+        // "Spatial Fusion 360" Real-World 3D Object Capture, Left-Hand Spatial CAD Palette, Multi-Body Tree & 1:1 Hand Print Preview
         public double CapturedDepthMm = 55.0;
         public double CapturedHeightMm = 42.0;
+        public int CadPrimitiveShapeIndex { get; private set; } = 0;
+        public int CadBooleanModeIndex { get; private set; } = 0;
+        public int CadPatternModeIndex { get; private set; } = 0;
+        public bool DirectPushPullActive { get; private set; } = false;
+        private int _pushPullStepIndex = 0;
         public int CadFeatureOpIndex { get; private set; } = 0;
         public int CadMaterialIndex { get; private set; } = 0;
         public int SnappedModuleCount { get; private set; } = 0;
@@ -114,6 +119,34 @@ namespace KineticCore.Runtime
         public double CadPartVolumeCm3 { get; private set; } = 38.0;
         public double CadPartMassGrams { get; private set; } = 47.1;
         public int EstimatedPrintMinutes { get; private set; } = 26;
+        private readonly List<StampedCadBodySpec> _stampedCadBodies = new List<StampedCadBodySpec>();
+        public IReadOnlyList<StampedCadBodySpec> StampedCadBodies => _stampedCadBodies;
+        public int StampedBodyCount => _stampedCadBodies.Count;
+        public string ActivePrimitiveShapeName => CadPrimitiveShapeNames[CadPrimitiveShapeIndex % CadPrimitiveShapeNames.Length];
+        public string ActiveBooleanModeName => CadBooleanModeNames[CadBooleanModeIndex % CadBooleanModeNames.Length];
+        public string ActivePatternModeName => CadPatternModeNames[CadPatternModeIndex % CadPatternModeNames.Length];
+
+        private static readonly string[] CadPrimitiveShapeNames =
+        {
+            "Box / Cube",
+            "Cylinder",
+            "Sphere",
+            "Torus Ring",
+            "Hollow Tube",
+            "L-Bracket"
+        };
+        private static readonly string[] CadBooleanModeNames =
+        {
+            "JOIN (Union)",
+            "CUT (Subtract)",
+            "INTERSECT"
+        };
+        private static readonly string[] CadPatternModeNames =
+        {
+            "1x Single",
+            "3x Linear Array",
+            "6x Circular Array"
+        };
         private static readonly string[] CadFeatureOpNames =
         {
             "Solid Extrude",
@@ -754,6 +787,115 @@ namespace KineticCore.Runtime
         }
 
         [Preserve]
+        public void CycleCadPrimitiveShape()
+        {
+            CadPrimitiveShapeIndex = (CadPrimitiveShapeIndex + 1) % CadPrimitiveShapeNames.Length;
+            SpatialTactileAudio.Instance?.PlayPokeClick();
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            if (SnappedModuleCount >= 3)
+                SynthesizeAndSpawnSync(ManualTestWidthMm);
+            StatusMessage = $"LEFT-HAND PALETTE -> Primitive: [{ActivePrimitiveShapeName}] ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm)";
+            WriteDiagnosticState("CycleCadPrimitiveShape");
+        }
+
+        [Preserve]
+        public void StampNewCadBodyToAssembly()
+        {
+            if (_stampedCadBodies.Count >= 6)
+            {
+                _stampedCadBodies.Clear();
+                SpatialTactileAudio.Instance?.PlayCaliperTick();
+                UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+                StatusMessage = "MULTI-BODY CAD TREE -> Cleared stamped sub-bodies (Reset to 1 Primary Solid)";
+                WriteDiagnosticState("ClearStampedCadBodies");
+                return;
+            }
+
+            int idx = _stampedCadBodies.Count;
+            // Coaxially stack or radially mate each newly stamped primitive onto the parametric CAD assembly
+            double[] offX = { 0.0,  22.0, -22.0,  0.0,  18.0, -18.0 };
+            double[] offZ = { 0.0,   0.0,   0.0, 20.0, -18.0,  18.0 };
+            double[] offY = { CapturedHeightMm * 0.55, 8.0, 8.0, 10.0, 14.0, 14.0 };
+            double scale = (CadBooleanModeIndex == 1) ? 0.52 : 0.64; // Boolean Cut creates precision negative bore/slot
+
+            var spec = new StampedCadBodySpec
+            {
+                bodyName = $"Body_{idx + 2}_{CadPrimitiveShapeNames[CadPrimitiveShapeIndex].Split(' ')[0]}",
+                primitiveShape = CadPrimitiveShapeIndex,
+                booleanMode = CadBooleanModeIndex,
+                patternMode = CadPatternModeIndex,
+                featureOp = CadFeatureOpIndex,
+                widthMm = System.Math.Max(14.0, ManualTestWidthMm * scale),
+                depthMm = System.Math.Max(14.0, CapturedDepthMm * scale),
+                heightMm = System.Math.Max(10.0, CapturedHeightMm * 0.65),
+                localOffsetXMm = offX[idx % offX.Length],
+                localOffsetYMm = offY[idx % offY.Length],
+                localOffsetZMm = offZ[idx % offZ.Length]
+            };
+            _stampedCadBodies.Add(spec);
+
+            SpatialTactileAudio.Instance?.PlayCaliperLock();
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            if (SnappedModuleCount >= 3)
+                SynthesizeAndSpawnSync(ManualTestWidthMm);
+            StatusMessage = $"STAMPED BODY #{_stampedCadBodies.Count + 1} -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName} | {ActivePatternModeName})";
+            WriteDiagnosticState("StampNewCadBodyToAssembly");
+        }
+
+        [Preserve]
+        public void CycleCadBooleanMode()
+        {
+            CadBooleanModeIndex = (CadBooleanModeIndex + 1) % CadBooleanModeNames.Length;
+            SpatialTactileAudio.Instance?.PlayPokeClick();
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            StatusMessage = $"BOOLEAN CSG MODE -> [{ActiveBooleanModeName}] (Poke [+STAMP BODY] to combine)";
+            WriteDiagnosticState("CycleCadBooleanMode");
+        }
+
+        [Preserve]
+        public void CycleCadPatternArray()
+        {
+            CadPatternModeIndex = (CadPatternModeIndex + 1) % CadPatternModeNames.Length;
+            SpatialTactileAudio.Instance?.PlaySynthChime();
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            if (SnappedModuleCount >= 3)
+                SynthesizeAndSpawnSync(ManualTestWidthMm);
+            StatusMessage = $"FUSION PATTERN ARRAY -> [{ActivePatternModeName}] ({ActivePrimitiveShapeName})";
+            WriteDiagnosticState("CycleCadPatternArray");
+        }
+
+        [Preserve]
+        public void CycleDirectPushPullExtrude()
+        {
+            _pushPullStepIndex = (_pushPullStepIndex + 1) % 4;
+            DirectPushPullActive = (_pushPullStepIndex % 2 == 1);
+            switch (_pushPullStepIndex)
+            {
+                case 1:
+                    CapturedHeightMm = System.Math.Min(140.0, CapturedHeightMm + 16.0);
+                    break;
+                case 2:
+                    CapturedDepthMm = System.Math.Min(180.0, CapturedDepthMm + 18.0);
+                    break;
+                case 3:
+                    // Isometric Equal-Dimension Precision Lock
+                    CapturedDepthMm = ManualTestWidthMm;
+                    CapturedHeightMm = System.Math.Max(20.0, ManualTestWidthMm * 0.75);
+                    break;
+                default:
+                    CapturedDepthMm = 55.0;
+                    CapturedHeightMm = 42.0;
+                    break;
+            }
+            SpatialTactileAudio.Instance?.PlayCaliperLock();
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            if (SnappedModuleCount >= 3)
+                SynthesizeAndSpawnSync(ManualTestWidthMm);
+            StatusMessage = $"PUSH/PULL EXTRUDE -> {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | Vol={CadPartVolumeCm3:F1}cm³ ({CadPartMassGrams:F1}g)";
+            WriteDiagnosticState("CycleDirectPushPullExtrude");
+        }
+
+        [Preserve]
         public void CycleCadFeatureOp()
         {
             CadFeatureOpIndex = (CadFeatureOpIndex + 1) % CadFeatureOpNames.Length;
@@ -1378,36 +1520,145 @@ namespace KineticCore.Runtime
             }
             partList.Clear();
 
-            float tWall = 0.0025f; // 2.5mm 3D-print shell wall
-            if (CadFeatureOpIndex == 1) // Shell 2.5mm Hollow Enclosure
+            Color primaryColor = GetBooleanTintedColor(matColor, CadBooleanModeIndex);
+            BuildPatternedPrimitiveVisual(
+                parentContainer, partList, "Primary", Vector3.zero, wM, dM, hM,
+                CadPrimitiveShapeIndex, CadFeatureOpIndex, CadPatternModeIndex, primaryColor);
+
+            // Render every additional body stamped from the Left-Hand Spatial CAD Palette!
+            for (int b = 0; b < _stampedCadBodies.Count; b++)
             {
-                AddSubBox(parentContainer, partList, "Shell_Floor", new Vector3(0f, -hM * 0.5f + tWall * 0.5f, 0f), new Vector3(wM, tWall, dM), matColor * 0.85f);
-                AddSubBox(parentContainer, partList, "Shell_Front", new Vector3(0f, 0f, -dM * 0.5f + tWall * 0.5f), new Vector3(wM, hM, tWall), matColor);
-                AddSubBox(parentContainer, partList, "Shell_Back",  new Vector3(0f, 0f,  dM * 0.5f - tWall * 0.5f), new Vector3(wM, hM, tWall), matColor);
-                AddSubBox(parentContainer, partList, "Shell_Left",  new Vector3(-wM * 0.5f + tWall * 0.5f, 0f, 0f), new Vector3(tWall, hM, Mathf.Max(0.004f, dM - 2f * tWall)), matColor * 0.92f);
-                AddSubBox(parentContainer, partList, "Shell_Right", new Vector3( wM * 0.5f - tWall * 0.5f, 0f, 0f), new Vector3(tWall, hM, Mathf.Max(0.004f, dM - 2f * tWall)), matColor * 0.92f);
+                StampedCadBodySpec body = _stampedCadBodies[b];
+                if (body == null) continue;
+                Vector3 localOff = new Vector3(
+                    (float)(body.localOffsetXMm * 0.001),
+                    (float)(body.localOffsetYMm * 0.001),
+                    (float)(body.localOffsetZMm * 0.001));
+                float bw = Mathf.Clamp((float)(body.widthMm * 0.001), 0.010f, 0.140f);
+                float bd = Mathf.Clamp((float)(body.depthMm * 0.001), 0.010f, 0.120f);
+                float bh = Mathf.Clamp((float)(body.heightMm * 0.001), 0.008f, 0.085f);
+                Color bodyCol = GetBooleanTintedColor(matColor, body.booleanMode);
+                BuildPatternedPrimitiveVisual(
+                    parentContainer, partList, body.bodyName, localOff, bw, bd, bh,
+                    body.primitiveShape, body.featureOp, body.patternMode, bodyCol);
             }
-            else if (CadFeatureOpIndex == 3) // L-Bracket Structural Mount with Gusset Ribs
+        }
+
+        private static Color GetBooleanTintedColor(Color baseMatColor, int booleanMode)
+        {
+            if (booleanMode == 1) // BOOLEAN CUT (Subtract) -> High-contrast glowing crimson/magenta negative cutter volume
+                return new Color(0.95f, 0.18f, 0.45f);
+            if (booleanMode == 2) // BOOLEAN INTERSECT -> Precision gold-amber shared volume
+                return new Color(0.95f, 0.78f, 0.18f);
+            return baseMatColor;  // BOOLEAN JOIN (Union)
+        }
+
+        private void BuildPatternedPrimitiveVisual(
+            Transform parentContainer, List<GameObject> partList, string prefix,
+            Vector3 centerOffset, float wM, float dM, float hM,
+            int primitiveShape, int featureOp, int patternMode, Color col)
+        {
+            if (patternMode == 1) // 3x Linear Pattern along X
+            {
+                float pitch = Mathf.Max(0.018f, wM * 0.65f);
+                for (int k = -1; k <= 1; k++)
+                {
+                    Vector3 pos = centerOffset + new Vector3(k * pitch, 0f, 0f);
+                    BuildSinglePrimitiveVisual(parentContainer, partList, $"{prefix}_Lin{k + 1}", pos, wM * 0.52f, dM * 0.52f, hM, primitiveShape, featureOp, col);
+                }
+            }
+            else if (patternMode == 2) // 6x Circular Radial Flange Pattern
+            {
+                float radius = Mathf.Max(0.016f, Mathf.Min(wM, dM) * 0.42f);
+                for (int k = 0; k < 6; k++)
+                {
+                    float ang = k * Mathf.PI / 3f;
+                    Vector3 pos = centerOffset + new Vector3(Mathf.Cos(ang) * radius, 0f, Mathf.Sin(ang) * radius);
+                    BuildSinglePrimitiveVisual(parentContainer, partList, $"{prefix}_Circ{k}", pos, wM * 0.36f, dM * 0.36f, hM, primitiveShape, featureOp, col);
+                }
+            }
+            else
+            {
+                BuildSinglePrimitiveVisual(parentContainer, partList, prefix, centerOffset, wM, dM, hM, primitiveShape, featureOp, col);
+            }
+        }
+
+        private void BuildSinglePrimitiveVisual(
+            Transform parentContainer, List<GameObject> partList, string prefix,
+            Vector3 offset, float wM, float dM, float hM, int primitiveShape, int featureOp, Color matColor)
+        {
+            if (primitiveShape == 1) // Cylinder (Unity Cylinder default height is 2.0m, so Y scale = hM * 0.5f)
+            {
+                AddSubCylinder(parentContainer, partList, $"{prefix}_Cylinder", offset, new Vector3(wM, hM * 0.5f, dM), matColor);
+                return;
+            }
+            if (primitiveShape == 2) // Sphere
+            {
+                AddSubSphere(parentContainer, partList, $"{prefix}_Sphere", offset, new Vector3(wM, hM, dM), matColor);
+                return;
+            }
+            if (primitiveShape == 3) // Torus / Bearing Flange Ring (8 radial segments)
+            {
+                float rRing = Mathf.Max(0.008f, Mathf.Min(wM, dM) * 0.38f);
+                float segSize = Mathf.Max(0.004f, wM * 0.24f);
+                for (int k = 0; k < 8; k++)
+                {
+                    float ang = k * Mathf.PI * 0.25f;
+                    Vector3 p = offset + new Vector3(Mathf.Cos(ang) * rRing, 0f, Mathf.Sin(ang) * rRing);
+                    AddSubCylinder(parentContainer, partList, $"{prefix}_Torus_{k}", p, new Vector3(segSize, hM * 0.25f, segSize), matColor);
+                }
+                return;
+            }
+            if (primitiveShape == 4) // Hollow Tube (outer sleeve + dark inner bore collar)
+            {
+                AddSubCylinder(parentContainer, partList, $"{prefix}_TubeOuter", offset, new Vector3(wM, hM * 0.5f, dM), matColor);
+                AddSubCylinder(parentContainer, partList, $"{prefix}_TubeBore", offset, new Vector3(wM * 0.68f, hM * 0.52f, dM * 0.68f), new Color(0.08f, 0.11f, 0.16f));
+                return;
+            }
+
+            float tWall = 0.0025f; // 2.5mm 3D-print shell wall
+            if (primitiveShape == 5 || featureOp == 3) // L-Bracket Structural Mount with Gusset Ribs
             {
                 float flangeT = Mathf.Max(0.004f, Mathf.Min(wM, hM) * 0.20f);
-                AddSubBox(parentContainer, partList, "LBracket_BaseFlange", new Vector3(0f, -hM * 0.5f + flangeT * 0.5f, 0f), new Vector3(wM, flangeT, dM), matColor);
-                AddSubBox(parentContainer, partList, "LBracket_VertFlange", new Vector3(-wM * 0.5f + flangeT * 0.5f, 0f, 0f), new Vector3(flangeT, hM, dM), matColor * 0.94f);
-                AddSubBox(parentContainer, partList, "LBracket_GussetFront", new Vector3(-wM * 0.18f, -hM * 0.12f, -dM * 0.40f), new Vector3(wM * 0.42f, hM * 0.42f, 0.003f), matColor * 1.15f);
-                AddSubBox(parentContainer, partList, "LBracket_GussetBack",  new Vector3(-wM * 0.18f, -hM * 0.12f,  dM * 0.40f), new Vector3(wM * 0.42f, hM * 0.42f, 0.003f), matColor * 1.15f);
+                AddSubBox(parentContainer, partList, $"{prefix}_LBracket_Base", offset + new Vector3(0f, -hM * 0.5f + flangeT * 0.5f, 0f), new Vector3(wM, flangeT, dM), matColor);
+                AddSubBox(parentContainer, partList, $"{prefix}_LBracket_Vert", offset + new Vector3(-wM * 0.5f + flangeT * 0.5f, 0f, 0f), new Vector3(flangeT, hM, dM), matColor * 0.94f);
+                AddSubBox(parentContainer, partList, $"{prefix}_LBracket_GussetF", offset + new Vector3(-wM * 0.18f, -hM * 0.12f, -dM * 0.40f), new Vector3(wM * 0.42f, hM * 0.42f, 0.003f), matColor * 1.15f);
+                AddSubBox(parentContainer, partList, $"{prefix}_LBracket_GussetB", offset + new Vector3(-wM * 0.18f, -hM * 0.12f,  dM * 0.40f), new Vector3(wM * 0.42f, hM * 0.42f, 0.003f), matColor * 1.15f);
+            }
+            else if (featureOp == 1) // Shell 2.5mm Hollow Enclosure
+            {
+                AddSubBox(parentContainer, partList, $"{prefix}_Shell_Floor", offset + new Vector3(0f, -hM * 0.5f + tWall * 0.5f, 0f), new Vector3(wM, tWall, dM), matColor * 0.85f);
+                AddSubBox(parentContainer, partList, $"{prefix}_Shell_Front", offset + new Vector3(0f, 0f, -dM * 0.5f + tWall * 0.5f), new Vector3(wM, hM, tWall), matColor);
+                AddSubBox(parentContainer, partList, $"{prefix}_Shell_Back",  offset + new Vector3(0f, 0f,  dM * 0.5f - tWall * 0.5f), new Vector3(wM, hM, tWall), matColor);
+                AddSubBox(parentContainer, partList, $"{prefix}_Shell_Left",  offset + new Vector3(-wM * 0.5f + tWall * 0.5f, 0f, 0f), new Vector3(tWall, hM, Mathf.Max(0.004f, dM - 2f * tWall)), matColor * 0.92f);
+                AddSubBox(parentContainer, partList, $"{prefix}_Shell_Right", offset + new Vector3( wM * 0.5f - tWall * 0.5f, 0f, 0f), new Vector3(tWall, hM, Mathf.Max(0.004f, dM - 2f * tWall)), matColor * 0.92f);
             }
             else // Solid Extrude (0) or Chamfer + M4 Mounting Bosses (2)
             {
-                AddSubBox(parentContainer, partList, "Solid_Core", Vector3.zero, new Vector3(wM, hM, dM), matColor);
-                if (CadFeatureOpIndex == 2)
+                AddSubBox(parentContainer, partList, $"{prefix}_Solid_Core", offset, new Vector3(wM, hM, dM), matColor);
+                if (featureOp == 2)
                 {
                     float bx = wM * 0.36f, bz = dM * 0.36f;
                     Color bossCol = new Color(0.90f, 0.78f, 0.25f);
-                    AddSubCylinder(parentContainer, partList, "M4_Boss_1", new Vector3(-bx, hM * 0.5f + 0.002f, -bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
-                    AddSubCylinder(parentContainer, partList, "M4_Boss_2", new Vector3( bx, hM * 0.5f + 0.002f, -bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
-                    AddSubCylinder(parentContainer, partList, "M4_Boss_3", new Vector3(-bx, hM * 0.5f + 0.002f,  bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
-                    AddSubCylinder(parentContainer, partList, "M4_Boss_4", new Vector3( bx, hM * 0.5f + 0.002f,  bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
+                    AddSubCylinder(parentContainer, partList, $"{prefix}_M4_1", offset + new Vector3(-bx, hM * 0.5f + 0.002f, -bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
+                    AddSubCylinder(parentContainer, partList, $"{prefix}_M4_2", offset + new Vector3( bx, hM * 0.5f + 0.002f, -bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
+                    AddSubCylinder(parentContainer, partList, $"{prefix}_M4_3", offset + new Vector3(-bx, hM * 0.5f + 0.002f,  bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
+                    AddSubCylinder(parentContainer, partList, $"{prefix}_M4_4", offset + new Vector3( bx, hM * 0.5f + 0.002f,  bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
                 }
             }
+        }
+
+        private void AddSubSphere(Transform parent, List<GameObject> list, string partName, Vector3 localPos, Vector3 localScale, Color col)
+        {
+            GameObject go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            go.name = partName;
+            Destroy(go.GetComponent<Collider>());
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.identity;
+            go.transform.localScale = localScale;
+            SetColorSafe(go.GetComponent<Renderer>(), col);
+            list.Add(go);
         }
 
         private void AddSubBox(Transform parent, List<GameObject> list, string partName, Vector3 localPos, Vector3 localScale, Color col)
@@ -1443,19 +1694,32 @@ namespace KineticCore.Runtime
             float dMeters = Mathf.Clamp((float)(CapturedDepthMm * 0.001), 0.020f, 0.120f);
             float hMeters = Mathf.Clamp((float)(CapturedHeightMm * 0.001), 0.012f, 0.085f);
 
-            // Calculate exact CAD solid volume (cm³), mass (g), and 3D-print slicer time (min)
+            // Calculate exact CAD solid volume (cm³), mass (g), and 3D-print slicer time (min) across primitive shape + multi-body tree
             double rawBoxCm3 = (widthMm * 0.1) * (CapturedDepthMm * 0.1) * (CapturedHeightMm * 0.1);
-            double fillFactor = (CadFeatureOpIndex == 1) ? 0.28 : ((CadFeatureOpIndex == 3) ? 0.36 : 0.45); // 45% gyroid infill for solid
-            CadPartVolumeCm3 = System.Math.Max(2.5, rawBoxCm3 * fillFactor);
+            double shapeFactor = (CadPrimitiveShapeIndex == 1) ? 0.785 : ((CadPrimitiveShapeIndex == 2) ? 0.524 : ((CadPrimitiveShapeIndex == 3 || CadPrimitiveShapeIndex == 4) ? 0.42 : 1.0));
+            double fillFactor = (CadFeatureOpIndex == 1) ? 0.28 : ((CadFeatureOpIndex == 3) ? 0.36 : 0.45);
+            double patternFactor = (CadPatternModeIndex == 1) ? 1.45 : ((CadPatternModeIndex == 2) ? 1.80 : 1.0);
+            double netCm3 = rawBoxCm3 * shapeFactor * fillFactor * patternFactor;
+
+            for (int b = 0; b < _stampedCadBodies.Count; b++)
+            {
+                StampedCadBodySpec body = _stampedCadBodies[b];
+                if (body == null) continue;
+                double bVol = (body.widthMm * 0.1) * (body.depthMm * 0.1) * (body.heightMm * 0.1) * 0.35;
+                netCm3 += (body.booleanMode == 1) ? (-bVol * 0.5) : bVol; // Boolean Cut subtracts mass!
+            }
+
+            CadPartVolumeCm3 = System.Math.Max(2.5, netCm3);
             double rho = CadMaterialDensities[CadMaterialIndex % CadMaterialDensities.Length];
             CadPartMassGrams = CadPartVolumeCm3 * rho;
             EstimatedPrintMinutes = Mathf.Max(6, Mathf.RoundToInt((float)(CadPartVolumeCm3 * 0.68)));
+            int totalBodies = 1 + _stampedCadBodies.Count;
 
             if (!_isHoldingWorkpiece)
             {
                 _sampleWorkpiece.localPosition = new Vector3(_workpieceHomeLocalPos.x, hMeters * 0.5f, _workpieceHomeLocalPos.z);
                 if (_workpieceLabel != null)
-                    _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, hMeters + 0.018f, 0f);
+                    _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, hMeters + 0.022f, 0f);
             }
 
             // Hide root cube mesh and render the multi-part Parametric Fusion CAD Solid inside _sampleWorkpiece
@@ -1470,9 +1734,9 @@ namespace KineticCore.Runtime
                 RebuildCadFeatureSubParts(_handInspectRoot.transform, _handInspectSubParts, wMeters, dMeters, hMeters, CadMaterialColors[CadMaterialIndex % CadMaterialColors.Length]);
                 if (_handInspectLabel != null)
                 {
-                    _handInspectLabel.transform.localPosition = new Vector3(0f, hMeters * 0.5f + 0.028f, 0f);
+                    _handInspectLabel.transform.localPosition = new Vector3(0f, hMeters * 0.5f + 0.032f, 0f);
                     _handInspectLabel.text =
-                        $"1:1 PRINT PREVIEW IN HAND [{CadFeatureOpNames[CadFeatureOpIndex]}]\n" +
+                        $"1:1 PRINT IN HAND [{ActivePrimitiveShapeName} | {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")} | {ActivePatternModeName}]\n" +
                         $"{widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g {CadMaterialNames[CadMaterialIndex]} (~{EstimatedPrintMinutes}m print)";
                 }
             }
@@ -1480,8 +1744,8 @@ namespace KineticCore.Runtime
             if (_workpieceLabel != null)
             {
                 _workpieceLabel.text = _isHoldingWorkpiece
-                    ? $"GRASPED CAD PART ({widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm)\nDeliver to Drop Zone ->"
-                    : $"1:1 CAPTURED CAD PART [{CadFeatureOpNames[CadFeatureOpIndex]}]\n{widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g";
+                    ? $"GRASPED CAD ASSEMBLY ({totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")})\nDeliver to Drop Zone ->"
+                    : $"1:1 CAD [{ActivePrimitiveShapeName} | {CadFeatureOpNames[CadFeatureOpIndex]} | {totalBodies}B]\n{widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g";
             }
         }
 
@@ -1713,6 +1977,11 @@ namespace KineticCore.Runtime
 
             if (KInput.GetKeyDown(KeyCode.G)) SynthesizeFast();
             if (KInput.GetKeyDown(KeyCode.N)) SnapAddModularJointAndLink();
+            if (KInput.GetKeyDown(KeyCode.T) || KInput.GetKeyDown(KeyCode.Alpha1)) CycleCadPrimitiveShape();
+            if (KInput.GetKeyDown(KeyCode.B) || KInput.GetKeyDown(KeyCode.Alpha2)) StampNewCadBodyToAssembly();
+            if (KInput.GetKeyDown(KeyCode.J) || KInput.GetKeyDown(KeyCode.Alpha3)) CycleCadBooleanMode();
+            if (KInput.GetKeyDown(KeyCode.L) || KInput.GetKeyDown(KeyCode.Alpha4)) CycleCadPatternArray();
+            if (KInput.GetKeyDown(KeyCode.X) || KInput.GetKeyDown(KeyCode.Alpha5)) CycleDirectPushPullExtrude();
             if (KInput.GetKeyDown(KeyCode.F)) CycleCadFeatureOp();
             if (KInput.GetKeyDown(KeyCode.M)) CycleCadMaterial();
             if (KInput.GetKeyDown(KeyCode.I)) ToggleHandInspectMode();
@@ -1748,10 +2017,11 @@ namespace KineticCore.Runtime
             }
 
             int dofCount = CurrentChain != null ? CurrentChain.Joints.Length : 3;
-            GUI.Box(new Rect(12, 12, 540, 272), "");
-            GUILayout.BeginArea(new Rect(20, 18, 524, 260));
-            GUILayout.Label($"<b>KINETIC-CAD XR | SPATIAL FUSION 360 & MODULAR ROBOTICS STUDIO</b> ({dofCount}-DoF)");
-            GUILayout.Label($"1:1 CAD Solid: {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm [{CadFeatureOpNames[CadFeatureOpIndex]}] | {CadPartMassGrams:F1}g {CadMaterialNames[CadMaterialIndex]}");
+            int totalBodies = 1 + _stampedCadBodies.Count;
+            GUI.Box(new Rect(12, 12, 565, 304), "");
+            GUILayout.BeginArea(new Rect(20, 18, 548, 292));
+            GUILayout.Label($"<b>KINETIC-CAD XR | SPATIAL FUSION 360 & MODULAR ROBOTICS STUDIO</b> ({dofCount}-DoF | {totalBodies} Bodies)");
+            GUILayout.Label($"Left-Hand CAD: [{ActivePrimitiveShapeName}] [{ActiveBooleanModeName}] [{ActivePatternModeName}] | {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm ({CadPartMassGrams:F1}g)");
             GUILayout.Label($"{AgentRecommendation}");
             GUILayout.Label($"Status: {StatusMessage}");
 
@@ -1772,8 +2042,16 @@ namespace KineticCore.Runtime
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button($"+Snap Module ({dofCount}DoF) [N]")) SnapAddModularJointAndLink();
-            if (GUILayout.Button($"Feature: {CadFeatureOpNames[CadFeatureOpIndex]} [F]")) CycleCadFeatureOp();
+            if (GUILayout.Button($"Shape: {ActivePrimitiveShapeName} [T]")) CycleCadPrimitiveShape();
+            if (GUILayout.Button($"+Stamp Body ({totalBodies}) [B]")) StampNewCadBodyToAssembly();
+            if (GUILayout.Button($"Bool: {ActiveBooleanModeName.Split(' ')[0]} [J]")) CycleCadBooleanMode();
+            if (GUILayout.Button($"Pat: {ActivePatternModeName} [L]")) CycleCadPatternArray();
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Push/Pull Extrude [X]")) CycleDirectPushPullExtrude();
+            if (GUILayout.Button($"+Snap Joint ({dofCount}DoF) [N]")) SnapAddModularJointAndLink();
+            if (GUILayout.Button($"Op: {CadFeatureOpNames[CadFeatureOpIndex]} [F]")) CycleCadFeatureOp();
             if (GUILayout.Button($"Mat: {CadMaterialNames[CadMaterialIndex].Split(' ')[0]} [M]")) CycleCadMaterial();
             GUILayout.EndHorizontal();
 
@@ -1802,9 +2080,10 @@ namespace KineticCore.Runtime
 
             string specTag = LastSpecFromAi ? "[AI Spec ✓]" : "[PoE Parametric]";
             string s1 = _stepSynthDone ? "✓" : "1";
-            string s2 = (SweptSampleCount >= 4 || _stepPuppetDone || SnappedModuleCount > 0) ? "✓" : "2";
+            string s2 = (SweptSampleCount >= 4 || _stepPuppetDone || SnappedModuleCount > 0 || _stampedCadBodies.Count > 0) ? "✓" : "2";
             string s3 = (IsHousingCarved || _stepAuditOrExportDone) ? "✓" : "3";
             int dofCount = _theta.Length;
+            int totalBodies = 1 + _stampedCadBodies.Count;
 
             double muRatio = ReferenceManipulability > 1e-6 ? (CurrentManipulability / ReferenceManipulability) : 1.0;
             string muSymbol = muRatio > 0.65 ? "[▲ OPTIMAL]" : (muRatio > 0.38 ? "[◆ CAUTION]" : "[▼ SINGULARITY]");
@@ -1813,8 +2092,8 @@ namespace KineticCore.Runtime
                 : $"h(x)={CurrentBarrierHxMm:F1}mm < 0 [■ {ClashedVoxelCount} VOX CLASH]";
 
             _vrHologramText.text =
-                $"KINETIC-CAD XR | SPATIAL FUSION 360 & MODULAR ROBOTICS ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {dofCount}-DoF)\n" +
-                $"[{s1}]Step1: 3D Capture/Feature({CadFeatureOpNames[CadFeatureOpIndex]})  [{s2}]Step2: +Snap Module({dofCount}DoF)/Sweep  [{s3}]Step3: Carve & Export\n" +
+                $"KINETIC-CAD XR | SPATIAL FUSION 360 STUDIO ({ActivePrimitiveShapeName} | {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")} | {dofCount}-DoF)\n" +
+                $"[{s1}]Step1: Left-Hand Palette({ActivePrimitiveShapeName}/{ActivePatternModeName})  [{s2}]Step2: +Stamp/+Snap({dofCount}DoF)  [{s3}]Step3: Carve & Export\n" +
                 $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | μ={CurrentManipulability:E2} {muSymbol} | {cbfStatus}\n" +
                 $"{AgentRecommendation}\n" +
                 $"{StatusMessage}";
@@ -1830,9 +2109,9 @@ namespace KineticCore.Runtime
 
                 string rName = CurrentSpec.robotName ?? "kinetic_claw";
                 _urdfInspectorText.text =
-                    $"=== DUAL MESH (.STL / .OBJ) + ROS 2 .URDF INSPECTOR ===\n" +
+                    $"=== MULTI-BODY .STL / .OBJ + ROS 2 .URDF INSPECTOR ===\n" +
                     $"Files: {rName}.urdf | {rName}_cad.stl | {rName}_cad.obj\n" +
-                    $"  1:1 Solid: {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm [{CadFeatureOpNames[CadFeatureOpIndex]}] | {CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m print)\n" +
+                    $"  CAD Tree: {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")} [{ActivePrimitiveShapeName} | {ActiveBooleanModeName} | {ActivePatternModeName}] ({CadPartMassGrams:F1}g)\n" +
                     $"  Snapped Chain: {dofCount}-DoF (Rev+Pris) | Swept W_i: {SweptSampleCount} | Carved: -{CarvedVoxelCount} vox\n" +
                     $"  {ChallengeTitles[Mathf.Clamp(CurrentChallengeLevel - 1, 0, ChallengeTitles.Length - 1)]} ({LastDeliveryStarRating}) | Career: {CareerDeliveries} Placed, {CareerUrdfExports} Exports";
             }
@@ -1857,11 +2136,11 @@ namespace KineticCore.Runtime
                 string topoLabel = topoNames[((_topologyVariantIndex % 4) + 4) % 4];
 
                 _specSheetText.text =
-                    $"=== SPATIAL FUSION CAD & PoE SCREW SHEET ===\n" +
-                    $"Base: {topoLabel} ({dofCount}-DoF {specTag})\n" +
-                    $"Material: {CadMaterialNames[CadMaterialIndex]} | Part Vol={CadPartVolumeCm3:F1}cm³ | Mass={CadPartMassGrams:F1}g\n" +
-                    $"Reach={(l1 + l2) * 1000:F0}mm | Total Mass={mTotal:F2}kg | Peak τ={tauPeak:F2}Nm | {muSymbol}\n" +
-                    $"1:1 Print Preview: {(HandInspectActive ? "[ACTIVE IN LEFT HAND]" : "Poke [HOLD 1:1 PRINT] to inspect in hand")}";
+                    $"=== LEFT-HAND FUSION CAD & PoE SCREW SHEET ===\n" +
+                    $"Primitive: {ActivePrimitiveShapeName} ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm) | {CadFeatureOpNames[CadFeatureOpIndex]}\n" +
+                    $"Material: {CadMaterialNames[CadMaterialIndex]} | Vol={CadPartVolumeCm3:F1}cm³ | Mass={CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m print)\n" +
+                    $"Mechanism: {topoLabel} ({dofCount}-DoF {specTag}) | Reach={(l1 + l2) * 1000:F0}mm | Peak τ={tauPeak:F2}Nm\n" +
+                    $"Left-Hand Dock: Poke [SHAPE / +STAMP / BOOLEAN / PATTERN / EXTRUDE / MATERIAL]";
             }
         }
 
@@ -1960,15 +2239,21 @@ namespace KineticCore.Runtime
                 _stepAuditOrExportDone = true;
                 string featName = CadFeatureOpNames[CadFeatureOpIndex % CadFeatureOpNames.Length];
                 string matName = CadMaterialNames[CadMaterialIndex % CadMaterialNames.Length];
+                string shapeName = ActivePrimitiveShapeName;
+                string boolName = ActiveBooleanModeName;
+                string patName = ActivePatternModeName;
 
                 LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, Application.persistentDataPath);
                 string stlPath = UrdfSerializer.SaveStlToFile(
-                    CurrentSpec, Application.persistentDataPath, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, CadFeatureOpIndex);
+                    CurrentSpec, Application.persistentDataPath, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm,
+                    CadFeatureOpIndex, CadPrimitiveShapeIndex, CadBooleanModeIndex, CadPatternModeIndex, _stampedCadBodies);
                 string objPath = UrdfSerializer.SaveObjToFile(
-                    CurrentSpec, Application.persistentDataPath, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, CadFeatureOpIndex, matName);
+                    CurrentSpec, Application.persistentDataPath, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm,
+                    CadFeatureOpIndex, matName, CadPrimitiveShapeIndex, CadBooleanModeIndex, CadPatternModeIndex, _stampedCadBodies);
                 string cbfPath = UrdfSerializer.SaveCbfEnvelopeToFile(
                     CurrentSpec, Application.persistentDataPath, CurrentBarrierHxMm, SweptSampleCount, CarvedVoxelCount, IsHousingCarved,
-                    ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, featName, matName, CadPartMassGrams);
+                    ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, featName, matName, CadPartMassGrams,
+                    shapeName, boolName, patName, _stampedCadBodies);
 
                 if (Application.isEditor)
                 {
@@ -1980,12 +2265,15 @@ namespace KineticCore.Runtime
                             string exportsDir = Path.Combine(rootDir.FullName, "Exports");
                             LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, exportsDir);
                             stlPath = UrdfSerializer.SaveStlToFile(
-                                CurrentSpec, exportsDir, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, CadFeatureOpIndex);
+                                CurrentSpec, exportsDir, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm,
+                                CadFeatureOpIndex, CadPrimitiveShapeIndex, CadBooleanModeIndex, CadPatternModeIndex, _stampedCadBodies);
                             objPath = UrdfSerializer.SaveObjToFile(
-                                CurrentSpec, exportsDir, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, CadFeatureOpIndex, matName);
+                                CurrentSpec, exportsDir, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm,
+                                CadFeatureOpIndex, matName, CadPrimitiveShapeIndex, CadBooleanModeIndex, CadPatternModeIndex, _stampedCadBodies);
                             cbfPath = UrdfSerializer.SaveCbfEnvelopeToFile(
                                 CurrentSpec, exportsDir, CurrentBarrierHxMm, SweptSampleCount, CarvedVoxelCount, IsHousingCarved,
-                                ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, featName, matName, CadPartMassGrams);
+                                ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, featName, matName, CadPartMassGrams,
+                                shapeName, boolName, patName, _stampedCadBodies);
                         }
                     }
                     catch { }
@@ -1995,7 +2283,7 @@ namespace KineticCore.Runtime
                 PlayerPrefs.SetInt("KineticCAD_TotalExports", CareerUrdfExports);
                 PlayerPrefs.Save();
                 SpatialTactileAudio.Instance?.PlayExportSuccess();
-                StatusMessage = $"EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} + {Path.GetFileName(stlPath)} + {Path.GetFileName(objPath)} + {Path.GetFileName(cbfPath)}";
+                StatusMessage = $"EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} + {Path.GetFileName(stlPath)} + {Path.GetFileName(objPath)} ({1 + _stampedCadBodies.Count} Bodies)";
                 Debug.Log($"[KineticCAD] Exported URDF: {LastExportedUrdfPath} | STL: {stlPath} | OBJ: {objPath} | CBF: {cbfPath}");
                 WriteDiagnosticState("ExportUrdf");
             }
