@@ -38,8 +38,26 @@ namespace KineticCore.Runtime
         private Transform[] _buttonTransforms;
         private Renderer[] _buttonRenderers;
         private Color[] _buttonBaseColors;
-        private readonly string[] _buttonActions = { "SynthesizeFast", "ToggleEnvelopeRecording", "ExecuteGhostCarve", "SynthesizeDeep", "ExportUrdf", "ResetPose" };
-        private readonly string[] _buttonLabels = { "SYNTHESIZE\nTOPOLOGY", "RECORD\nENVELOPE", "GHOST CARVE\n(CBF h>=0)", "KINEMATIC\nAUDIT", "EXPORT\nURDF + CBF", "CALIBRATE\nDESK" };
+        private readonly string[] _buttonActions =
+        {
+            "SynthesizeFast",
+            "SnapAddModularJointAndLink",
+            "CycleCadFeatureOp",
+            "ToggleHandInspectMode",
+            "ExecuteGhostCarve",
+            "ExportUrdf",
+            "ResetPose"
+        };
+        private readonly string[] _buttonLabels =
+        {
+            "SYNTHESIZE\nTOPOLOGY",
+            "+SNAP MODULE\n(3..6 DoF)",
+            "CAD FEATURE\n(SHELL/BOSS)",
+            "HOLD 1:1\nIN HAND",
+            "GHOST CARVE\n(CBF h>=0)",
+            "EXPORT STL\nOBJ + URDF",
+            "CALIBRATE\nDESK"
+        };
         private float _lastPokeTime = -10f;
         private float _lastMicrogestureTime = -10f;
         private OVRHand.MicrogestureType _prevRightMicrogesture = OVRHand.MicrogestureType.NoGesture;
@@ -114,10 +132,11 @@ namespace KineticCore.Runtime
             _buttonBaseColors = new Color[]
             {
                 new Color(0.0f, 0.75f, 0.95f), // Synthesize Topology (Cyan)
-                new Color(0.95f, 0.55f, 0.12f), // Record Envelope W_i (Amber)
+                new Color(0.95f, 0.65f, 0.12f), // +Snap Module 3..6 DoF (Gold-Amber)
+                new Color(0.25f, 0.50f, 0.95f), // CAD Feature Shell/Boss/L-Bracket (Royal Blue)
+                new Color(0.10f, 0.85f, 0.72f), // Hold 1:1 Print in Hand (Teal)
                 new Color(0.95f, 0.20f, 0.65f), // Ghost Carve CBF (Magenta)
-                new Color(0.65f, 0.25f, 0.95f), // Kinematic Audit (Purple)
-                new Color(0.15f, 0.85f, 0.35f), // Export URDF + CBF (Green)
+                new Color(0.15f, 0.85f, 0.35f), // Export STL + OBJ + URDF (Emerald Green)
                 new Color(0.85f, 0.25f, 0.25f)  // Calibrate Desk (Red)
             };
 
@@ -128,13 +147,13 @@ namespace KineticCore.Runtime
 
             for (int i = 0; i < count; i++)
             {
-                float xOffset = (i - (count - 1) * 0.5f) * 0.076f;
+                float xOffset = (i - (count - 1) * 0.5f) * 0.068f;
 
                 GameObject btn = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 btn.name = $"VRButton_{_buttonActions[i]}";
                 btn.transform.SetParent(barRoot.transform, false);
                 btn.transform.localPosition = new Vector3(xOffset, 0f, 0f);
-                btn.transform.localScale = new Vector3(0.066f, 0.022f, 0.042f);
+                btn.transform.localScale = new Vector3(0.060f, 0.022f, 0.042f);
 
                 _buttonTransforms[i] = btn.transform;
                 _buttonRenderers[i] = btn.GetComponent<Renderer>();
@@ -143,7 +162,7 @@ namespace KineticCore.Runtime
                 WorldTextFactory.Create(
                     $"Label_{_buttonActions[i]}", barRoot.transform,
                     new Vector3(xOffset, 0.025f, 0.0f), Quaternion.Euler(45f, 0f, 0f),
-                    0.0020f, 34, Color.white, _buttonLabels[i]);
+                    0.0018f, 32, Color.white, _buttonLabels[i]);
             }
         }
 
@@ -226,8 +245,8 @@ namespace KineticCore.Runtime
             }
 
             Vector2 mousePos = KInput.MousePosition();
-            // Ignore clicks inside the top-left OnGUI control box (535 x 265 px)
-            bool insideGuiBox = (mousePos.x <= 535f && (Screen.height - mousePos.y) <= 265f);
+            // Ignore clicks inside the top-left OnGUI control box (555 x 285 px)
+            bool insideGuiBox = (mousePos.x <= 555f && (Screen.height - mousePos.y) <= 285f);
 
             Camera cam = (MechanismController != null && MechanismController.HeadCamera != null)
                 ? MechanismController.HeadCamera
@@ -644,15 +663,15 @@ namespace KineticCore.Runtime
                             MechanismController.ScrubDimensionMm(+5.0);
                             break;
                         case OVRHand.MicrogestureType.SwipeForward:
-                            PulseButtonVisual(0);
-                            MechanismController.SynthesizeFast();
+                            PulseButtonVisual(1);
+                            MechanismController.SnapAddModularJointAndLink();
                             break;
                         case OVRHand.MicrogestureType.SwipeBackward:
-                            PulseButtonVisual(1);
-                            MechanismController.ToggleEnvelopeRecording();
+                            PulseButtonVisual(2);
+                            MechanismController.CycleCadFeatureOp();
                             break;
                         case OVRHand.MicrogestureType.ThumbTap:
-                            PulseButtonVisual(2);
+                            PulseButtonVisual(4);
                             MechanismController.ExecuteGhostCarve();
                             break;
                     }
@@ -679,13 +698,17 @@ namespace KineticCore.Runtime
 
             switch (actionName)
             {
-                case "SynthesizeFast":          MechanismController.SynthesizeFast();          return;
-                case "ToggleEnvelopeRecording": MechanismController.ToggleEnvelopeRecording(); return;
-                case "ExecuteGhostCarve":       MechanismController.ExecuteGhostCarve();       return;
-                case "SynthesizeDeep":          MechanismController.SynthesizeDeep();          return;
-                case "ExportUrdf":              MechanismController.ExportUrdf();              return;
-                case "TogglePuppet":            MechanismController.TogglePuppet();            return;
-                case "ResetPose":               MechanismController.ResetPose();               return;
+                case "SynthesizeFast":             MechanismController.SynthesizeFast();             return;
+                case "SnapAddModularJointAndLink": MechanismController.SnapAddModularJointAndLink(); return;
+                case "CycleCadFeatureOp":          MechanismController.CycleCadFeatureOp();          return;
+                case "CycleCadMaterial":           MechanismController.CycleCadMaterial();           return;
+                case "ToggleHandInspectMode":      MechanismController.ToggleHandInspectMode();      return;
+                case "ToggleEnvelopeRecording":    MechanismController.ToggleEnvelopeRecording();    return;
+                case "ExecuteGhostCarve":          MechanismController.ExecuteGhostCarve();          return;
+                case "SynthesizeDeep":             MechanismController.SynthesizeDeep();             return;
+                case "ExportUrdf":                 MechanismController.ExportUrdf();                 return;
+                case "TogglePuppet":               MechanismController.TogglePuppet();               return;
+                case "ResetPose":                  MechanismController.ResetPose();                  return;
                 default: Debug.LogWarning($"[QuestBridge] Unknown command '{actionName}'"); return;
             }
         }

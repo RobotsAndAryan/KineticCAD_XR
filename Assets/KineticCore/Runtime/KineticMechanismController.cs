@@ -104,6 +104,45 @@ namespace KineticCore.Runtime
         private bool _stepPuppetDone = false;
         private bool _stepAuditOrExportDone = false;
 
+        // "Spatial Fusion 360" Real-World 3D Object Capture, Parametric CAD Features, Snap Modules & 1:1 Hand Print Preview
+        public double CapturedDepthMm = 55.0;
+        public double CapturedHeightMm = 42.0;
+        public int CadFeatureOpIndex { get; private set; } = 0;
+        public int CadMaterialIndex { get; private set; } = 0;
+        public int SnappedModuleCount { get; private set; } = 0;
+        public bool HandInspectActive { get; private set; } = false;
+        public double CadPartVolumeCm3 { get; private set; } = 38.0;
+        public double CadPartMassGrams { get; private set; } = 47.1;
+        public int EstimatedPrintMinutes { get; private set; } = 26;
+        private static readonly string[] CadFeatureOpNames =
+        {
+            "Solid Extrude",
+            "Shell 2.5mm Hollow",
+            "Chamfer + M4 Bosses",
+            "L-Bracket Mount"
+        };
+        private static readonly string[] CadMaterialNames =
+        {
+            "PLA+ (1.24g/cm³)",
+            "PETG-CF (1.38g/cm³)",
+            "6061-T6 Al (2.70g/cm³)",
+            "Ti-6Al-4V (4.43g/cm³)"
+        };
+        private static readonly double[] CadMaterialDensities = { 1.24, 1.38, 2.70, 4.43 };
+        private static readonly Color[] CadMaterialColors =
+        {
+            new Color(0.18f, 0.58f, 0.78f),
+            new Color(0.24f, 0.28f, 0.34f),
+            new Color(0.70f, 0.77f, 0.85f),
+            new Color(0.58f, 0.54f, 0.64f)
+        };
+        private readonly List<GameObject> _workpieceCadSubParts = new List<GameObject>();
+        private GameObject _handInspectRoot;
+        private readonly List<GameObject> _handInspectSubParts = new List<GameObject>();
+        private TextMesh _handInspectLabel;
+        private Transform _distalSnapPortRing;
+        private HandFingertipReader _cachedTipReader;
+
         // Swept-Volume CSG "Ghost Carving" (W_i) & Control Barrier Function (h(x) >= 0) state
         public bool RecordEnvelopeActive { get; private set; } = true;
         public bool IsHousingCarved { get; private set; } = false;
@@ -703,6 +742,201 @@ namespace KineticCore.Runtime
                 TriggerAsyncSynthesis(ManualTestWidthMm);
         }
 
+        [Preserve]
+        public void SetCapturedObjectDimensionsMm(double wMm, double dMm, double hMm, bool triggerSynthesisNow = false)
+        {
+            ManualTestWidthMm = System.Math.Max(20.0, System.Math.Min(250.0, wMm));
+            CapturedDepthMm = System.Math.Max(20.0, System.Math.Min(220.0, dMm));
+            CapturedHeightMm = System.Math.Max(12.0, System.Math.Min(160.0, hMm));
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            if (triggerSynthesisNow)
+                TriggerAsyncSynthesis(ManualTestWidthMm);
+        }
+
+        [Preserve]
+        public void CycleCadFeatureOp()
+        {
+            CadFeatureOpIndex = (CadFeatureOpIndex + 1) % CadFeatureOpNames.Length;
+            SpatialTactileAudio.Instance?.PlayPokeClick();
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            if (SnappedModuleCount >= 3)
+                SynthesizeAndSpawnSync(ManualTestWidthMm);
+            StatusMessage = $"FUSION CAD FEATURE -> [{CadFeatureOpNames[CadFeatureOpIndex]}] ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g)";
+            WriteDiagnosticState("CycleCadFeatureOp");
+        }
+
+        [Preserve]
+        public void CycleCadMaterial()
+        {
+            CadMaterialIndex = (CadMaterialIndex + 1) % CadMaterialNames.Length;
+            SpatialTactileAudio.Instance?.PlayCaliperTick();
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            if (SnappedModuleCount >= 3)
+                SynthesizeAndSpawnSync(ManualTestWidthMm);
+            StatusMessage = $"CAD MATERIAL -> {CadMaterialNames[CadMaterialIndex]} | Mass={CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m print)";
+            WriteDiagnosticState("CycleCadMaterial");
+        }
+
+        [Preserve]
+        public void SnapAddModularJointAndLink()
+        {
+            SnappedModuleCount = (SnappedModuleCount + 1) % 4;
+            _spawnAnimTimer = 0.85f;
+            SpatialTactileAudio.Instance?.PlayCaliperLock();
+            SynthesizeAndSpawnSync(ManualTestWidthMm);
+
+            string[] snapDescriptions =
+            {
+                "Reset to Base 3-DoF Mechanism",
+                "Snapped +Prismatic Linear Actuator Slider (4-DoF Screw S_pris)",
+                "Snapped +Revolute Pitch Wrist Module (5-DoF Screw S_rev)",
+                "Snapped +Revolute Roll Flange & Captured 1:1 CAD Solid (6-DoF Full Assembly!)"
+            };
+            StatusMessage = $"MAGNETIC SNAP -> {snapDescriptions[SnappedModuleCount]}";
+            WriteDiagnosticState("SnapAddModularJointAndLink");
+        }
+
+        [Preserve]
+        public void ToggleHandInspectMode()
+        {
+            HandInspectActive = !HandInspectActive;
+            if (_handInspectRoot != null)
+                _handInspectRoot.SetActive(HandInspectActive);
+            SpatialTactileAudio.Instance?.PlaySynthChime();
+            StatusMessage = HandInspectActive
+                ? $"1:1 PRINT IN HAND [ON] -> Hold out Left Hand to inspect {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm ({CadPartMassGrams:F1}g {CadMaterialNames[CadMaterialIndex]})"
+                : "1:1 PRINT IN HAND [OFF] -> Returned to Tabletop Studio";
+            WriteDiagnosticState("ToggleHandInspectMode");
+        }
+
+        private MechanismSpec AppendSnappedModulesToSpec(MechanismSpec baseSpec)
+        {
+            if (baseSpec == null || SnappedModuleCount <= 0 || baseSpec.joints == null || baseSpec.links == null)
+                return baseSpec;
+
+            var links = new List<LinkSpec>(baseSpec.links);
+            var joints = new List<JointSpec>(baseSpec.joints);
+            double curEeX = (baseSpec.endEffectorHomePosition != null && baseSpec.endEffectorHomePosition.Length == 3) ? baseSpec.endEffectorHomePosition[0] : 0.22;
+            double curEeY = (baseSpec.endEffectorHomePosition != null && baseSpec.endEffectorHomePosition.Length == 3) ? baseSpec.endEffectorHomePosition[1] : 0.06;
+            double curEeZ = (baseSpec.endEffectorHomePosition != null && baseSpec.endEffectorHomePosition.Length == 3) ? baseSpec.endEffectorHomePosition[2] : 0.0;
+
+            // Module 1 (4th DoF): Prismatic Linear Actuator Slider along +X
+            if (SnappedModuleCount >= 1)
+            {
+                double sliderLen = 0.052;
+                string pLink = links[links.Count - 1].name;
+                string cLink = "snapped_prismatic_slider_link";
+                joints.Add(new JointSpec
+                {
+                    name = "joint_4_prismatic_slider",
+                    jointType = "prismatic",
+                    parentLink = pLink,
+                    childLink = cLink,
+                    originX = curEeX,
+                    originY = curEeY,
+                    originZ = curEeZ,
+                    axisX = 1.0,
+                    axisY = 0.0,
+                    axisZ = 0.0,
+                    minLimitRad = -0.040,
+                    maxLimitRad = 0.060
+                });
+                links.Add(new LinkSpec
+                {
+                    name = cLink,
+                    lengthM = sliderLen,
+                    widthM = 0.018,
+                    heightM = 0.018,
+                    massKg = 0.14,
+                    centerX = curEeX + sliderLen * 0.5,
+                    centerY = curEeY,
+                    centerZ = curEeZ
+                });
+                curEeX += sliderLen;
+            }
+
+            // Module 2 (5th DoF): Revolute Pitch Wrist around Z
+            if (SnappedModuleCount >= 2)
+            {
+                double wristLen = 0.046;
+                string pLink = links[links.Count - 1].name;
+                string cLink = "snapped_revolute_wrist_link";
+                joints.Add(new JointSpec
+                {
+                    name = "joint_5_wrist_pitch",
+                    jointType = "revolute",
+                    parentLink = pLink,
+                    childLink = cLink,
+                    originX = curEeX,
+                    originY = curEeY,
+                    originZ = curEeZ,
+                    axisX = 0.0,
+                    axisY = 0.0,
+                    axisZ = 1.0,
+                    minLimitRad = -2.0,
+                    maxLimitRad = 2.0
+                });
+                links.Add(new LinkSpec
+                {
+                    name = cLink,
+                    lengthM = wristLen,
+                    widthM = 0.016,
+                    heightM = 0.016,
+                    massKg = 0.11,
+                    centerX = curEeX + wristLen * 0.5,
+                    centerY = curEeY,
+                    centerZ = curEeZ
+                });
+                curEeX += wristLen;
+            }
+
+            // Module 3 (6th DoF): Revolute Roll Flange around X carrying the Captured 1:1 Real-World CAD Part!
+            if (SnappedModuleCount >= 3)
+            {
+                double cadLen = System.Math.Max(0.024, System.Math.Min(0.095, CapturedDepthMm * 0.001));
+                double cadWid = System.Math.Max(0.024, System.Math.Min(0.110, ManualTestWidthMm * 0.001));
+                double cadHgt = System.Math.Max(0.016, System.Math.Min(0.075, CapturedHeightMm * 0.001));
+                string pLink = links[links.Count - 1].name;
+                string cLink = "snapped_captured_cad_part";
+                joints.Add(new JointSpec
+                {
+                    name = "joint_6_tool_roll",
+                    jointType = "revolute",
+                    parentLink = pLink,
+                    childLink = cLink,
+                    originX = curEeX,
+                    originY = curEeY,
+                    originZ = curEeZ,
+                    axisX = 1.0,
+                    axisY = 0.0,
+                    axisZ = 0.0,
+                    minLimitRad = -3.14,
+                    maxLimitRad = 3.14
+                });
+                links.Add(new LinkSpec
+                {
+                    name = cLink,
+                    lengthM = cadLen,
+                    widthM = cadWid,
+                    heightM = cadHgt,
+                    massKg = System.Math.Max(0.02, CadPartMassGrams * 0.001),
+                    centerX = curEeX + cadLen * 0.5,
+                    centerY = curEeY,
+                    centerZ = curEeZ
+                });
+                curEeX += cadLen;
+            }
+
+            return new MechanismSpec
+            {
+                robotName = $"{baseSpec.robotName}_{joints.Count}dof",
+                targetCaliperWidthMm = baseSpec.targetCaliperWidthMm,
+                links = links.ToArray(),
+                joints = joints.ToArray(),
+                endEffectorHomePosition = new[] { curEeX, curEeY, curEeZ }
+            };
+        }
+
         // ------------------------------------------------------------------ Scene construction
 
         private void CreateDeskEnvironment()
@@ -764,6 +998,7 @@ namespace KineticCore.Runtime
             CreateObjectiveBeacon();
             CreateTrajectoryTrail();
             CreatePayloadHousingAndSweptEnvelope();
+            CreateHandInspectPreview();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
         }
 
@@ -1119,22 +1354,134 @@ namespace KineticCore.Runtime
             }
         }
 
+        private void CreateHandInspectPreview()
+        {
+            _handInspectRoot = new GameObject("HandInspect_1to1_PrintPreview");
+            _handInspectRoot.transform.SetParent(DeskWorkspaceOrigin, false);
+            _handInspectRoot.transform.localPosition = new Vector3(-0.08f, 0.145f, -0.06f);
+            _handInspectRoot.transform.localRotation = Quaternion.identity;
+
+            _handInspectLabel = WorldTextFactory.Create(
+                "HandInspect_SpecLabel", _handInspectRoot.transform,
+                new Vector3(0f, 0.052f, 0f), Quaternion.identity,
+                0.00145f, 32, new Color(0.30f, 1.0f, 0.75f),
+                "1:1 PRINT PREVIEW IN HAND\nHold out Left Hand to inspect before 3D printing");
+
+            _handInspectRoot.SetActive(HandInspectActive);
+        }
+
+        private void RebuildCadFeatureSubParts(Transform parentContainer, List<GameObject> partList, float wM, float dM, float hM, Color matColor)
+        {
+            for (int i = 0; i < partList.Count; i++)
+            {
+                if (partList[i] != null) Destroy(partList[i]);
+            }
+            partList.Clear();
+
+            float tWall = 0.0025f; // 2.5mm 3D-print shell wall
+            if (CadFeatureOpIndex == 1) // Shell 2.5mm Hollow Enclosure
+            {
+                AddSubBox(parentContainer, partList, "Shell_Floor", new Vector3(0f, -hM * 0.5f + tWall * 0.5f, 0f), new Vector3(wM, tWall, dM), matColor * 0.85f);
+                AddSubBox(parentContainer, partList, "Shell_Front", new Vector3(0f, 0f, -dM * 0.5f + tWall * 0.5f), new Vector3(wM, hM, tWall), matColor);
+                AddSubBox(parentContainer, partList, "Shell_Back",  new Vector3(0f, 0f,  dM * 0.5f - tWall * 0.5f), new Vector3(wM, hM, tWall), matColor);
+                AddSubBox(parentContainer, partList, "Shell_Left",  new Vector3(-wM * 0.5f + tWall * 0.5f, 0f, 0f), new Vector3(tWall, hM, Mathf.Max(0.004f, dM - 2f * tWall)), matColor * 0.92f);
+                AddSubBox(parentContainer, partList, "Shell_Right", new Vector3( wM * 0.5f - tWall * 0.5f, 0f, 0f), new Vector3(tWall, hM, Mathf.Max(0.004f, dM - 2f * tWall)), matColor * 0.92f);
+            }
+            else if (CadFeatureOpIndex == 3) // L-Bracket Structural Mount with Gusset Ribs
+            {
+                float flangeT = Mathf.Max(0.004f, Mathf.Min(wM, hM) * 0.20f);
+                AddSubBox(parentContainer, partList, "LBracket_BaseFlange", new Vector3(0f, -hM * 0.5f + flangeT * 0.5f, 0f), new Vector3(wM, flangeT, dM), matColor);
+                AddSubBox(parentContainer, partList, "LBracket_VertFlange", new Vector3(-wM * 0.5f + flangeT * 0.5f, 0f, 0f), new Vector3(flangeT, hM, dM), matColor * 0.94f);
+                AddSubBox(parentContainer, partList, "LBracket_GussetFront", new Vector3(-wM * 0.18f, -hM * 0.12f, -dM * 0.40f), new Vector3(wM * 0.42f, hM * 0.42f, 0.003f), matColor * 1.15f);
+                AddSubBox(parentContainer, partList, "LBracket_GussetBack",  new Vector3(-wM * 0.18f, -hM * 0.12f,  dM * 0.40f), new Vector3(wM * 0.42f, hM * 0.42f, 0.003f), matColor * 1.15f);
+            }
+            else // Solid Extrude (0) or Chamfer + M4 Mounting Bosses (2)
+            {
+                AddSubBox(parentContainer, partList, "Solid_Core", Vector3.zero, new Vector3(wM, hM, dM), matColor);
+                if (CadFeatureOpIndex == 2)
+                {
+                    float bx = wM * 0.36f, bz = dM * 0.36f;
+                    Color bossCol = new Color(0.90f, 0.78f, 0.25f);
+                    AddSubCylinder(parentContainer, partList, "M4_Boss_1", new Vector3(-bx, hM * 0.5f + 0.002f, -bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
+                    AddSubCylinder(parentContainer, partList, "M4_Boss_2", new Vector3( bx, hM * 0.5f + 0.002f, -bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
+                    AddSubCylinder(parentContainer, partList, "M4_Boss_3", new Vector3(-bx, hM * 0.5f + 0.002f,  bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
+                    AddSubCylinder(parentContainer, partList, "M4_Boss_4", new Vector3( bx, hM * 0.5f + 0.002f,  bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
+                }
+            }
+        }
+
+        private void AddSubBox(Transform parent, List<GameObject> list, string partName, Vector3 localPos, Vector3 localScale, Color col)
+        {
+            GameObject go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = partName;
+            Destroy(go.GetComponent<Collider>());
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.identity;
+            go.transform.localScale = localScale;
+            SetColorSafe(go.GetComponent<Renderer>(), col);
+            list.Add(go);
+        }
+
+        private void AddSubCylinder(Transform parent, List<GameObject> list, string partName, Vector3 localPos, Vector3 localScale, Color col)
+        {
+            GameObject go = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            go.name = partName;
+            Destroy(go.GetComponent<Collider>());
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.identity;
+            go.transform.localScale = localScale;
+            SetColorSafe(go.GetComponent<Renderer>(), col);
+            list.Add(go);
+        }
+
         private void UpdateSampleWorkpieceVisual(double widthMm)
         {
             if (_sampleWorkpiece == null) return;
-            float wMeters = Mathf.Clamp((float)(widthMm * 0.001), 0.02f, 0.25f);
+            float wMeters = Mathf.Clamp((float)(widthMm * 0.001), 0.020f, 0.160f);
+            float dMeters = Mathf.Clamp((float)(CapturedDepthMm * 0.001), 0.020f, 0.120f);
+            float hMeters = Mathf.Clamp((float)(CapturedHeightMm * 0.001), 0.012f, 0.085f);
+
+            // Calculate exact CAD solid volume (cm³), mass (g), and 3D-print slicer time (min)
+            double rawBoxCm3 = (widthMm * 0.1) * (CapturedDepthMm * 0.1) * (CapturedHeightMm * 0.1);
+            double fillFactor = (CadFeatureOpIndex == 1) ? 0.28 : ((CadFeatureOpIndex == 3) ? 0.36 : 0.45); // 45% gyroid infill for solid
+            CadPartVolumeCm3 = System.Math.Max(2.5, rawBoxCm3 * fillFactor);
+            double rho = CadMaterialDensities[CadMaterialIndex % CadMaterialDensities.Length];
+            CadPartMassGrams = CadPartVolumeCm3 * rho;
+            EstimatedPrintMinutes = Mathf.Max(6, Mathf.RoundToInt((float)(CadPartVolumeCm3 * 0.68)));
+
             if (!_isHoldingWorkpiece)
             {
-                _sampleWorkpiece.localPosition = _workpieceHomeLocalPos;
+                _sampleWorkpiece.localPosition = new Vector3(_workpieceHomeLocalPos.x, hMeters * 0.5f, _workpieceHomeLocalPos.z);
                 if (_workpieceLabel != null)
-                    _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, 0.024f, 0f);
+                    _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, hMeters + 0.018f, 0f);
             }
-            _sampleWorkpiece.localScale = new Vector3(wMeters, 0.014f, 0.024f);
+
+            // Hide root cube mesh and render the multi-part Parametric Fusion CAD Solid inside _sampleWorkpiece
+            _sampleWorkpiece.localScale = Vector3.one;
+            if (_workpieceRenderer != null) _workpieceRenderer.enabled = false;
+            Color matCol = _isHoldingWorkpiece ? new Color(0.25f, 1.0f, 0.55f) : CadMaterialColors[CadMaterialIndex % CadMaterialColors.Length];
+            RebuildCadFeatureSubParts(_sampleWorkpiece, _workpieceCadSubParts, wMeters, dMeters, hMeters, matCol);
+
+            // Also update the 1:1 Hand Print Preview assembly so holding it in your hand shows the live CAD features!
+            if (_handInspectRoot != null)
+            {
+                RebuildCadFeatureSubParts(_handInspectRoot.transform, _handInspectSubParts, wMeters, dMeters, hMeters, CadMaterialColors[CadMaterialIndex % CadMaterialColors.Length]);
+                if (_handInspectLabel != null)
+                {
+                    _handInspectLabel.transform.localPosition = new Vector3(0f, hMeters * 0.5f + 0.028f, 0f);
+                    _handInspectLabel.text =
+                        $"1:1 PRINT PREVIEW IN HAND [{CadFeatureOpNames[CadFeatureOpIndex]}]\n" +
+                        $"{widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g {CadMaterialNames[CadMaterialIndex]} (~{EstimatedPrintMinutes}m print)";
+                }
+            }
+
             if (_workpieceLabel != null)
             {
                 _workpieceLabel.text = _isHoldingWorkpiece
-                    ? $"GRASPED ({widthMm:F0} mm)\nMove to Drop Zone ->"
-                    : $"PICKUP WORKPIECE\n{widthMm:F0} mm";
+                    ? $"GRASPED CAD PART ({widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm)\nDeliver to Drop Zone ->"
+                    : $"1:1 CAPTURED CAD PART [{CadFeatureOpNames[CadFeatureOpIndex]}]\n{widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g";
             }
         }
 
@@ -1310,6 +1657,22 @@ namespace KineticCore.Runtime
             if (TargetTransform != null)
                 TargetTransform.position = DeskWorkspaceOrigin.TransformPoint(ManualTargetLocalPos);
 
+            // Update "Hold-In-Your-Hands" 1:1 Physical Print Preview position & rotation
+            if (HandInspectActive && _handInspectRoot != null)
+            {
+                if (_cachedTipReader == null) _cachedTipReader = FindAnyObjectByType<HandFingertipReader>();
+                if (!IsFlatEditorMode && _cachedTipReader != null && _cachedTipReader.LeftValid)
+                {
+                    _handInspectRoot.transform.position = Vector3.Lerp(_handInspectRoot.transform.position, _cachedTipReader.LeftWorld + Vector3.up * 0.045f, Time.deltaTime * 14f);
+                    _handInspectRoot.transform.Rotate(Vector3.up, Time.deltaTime * 28f, Space.Self);
+                }
+                else
+                {
+                    _handInspectRoot.transform.localPosition = new Vector3(-0.06f, 0.145f, -0.05f);
+                    _handInspectRoot.transform.localRotation = Quaternion.Euler(15f, Time.time * 38f, 0f);
+                }
+            }
+
             if (CurrentChain != null && _theta != null && TargetTransform != null && _mechanismRoot != null)
             {
                 if (PuppetActive && _auditSweepTimer <= 0f && _resetHoldTimer <= 0f)
@@ -1349,6 +1712,10 @@ namespace KineticCore.Runtime
             }
 
             if (KInput.GetKeyDown(KeyCode.G)) SynthesizeFast();
+            if (KInput.GetKeyDown(KeyCode.N)) SnapAddModularJointAndLink();
+            if (KInput.GetKeyDown(KeyCode.F)) CycleCadFeatureOp();
+            if (KInput.GetKeyDown(KeyCode.M)) CycleCadMaterial();
+            if (KInput.GetKeyDown(KeyCode.I)) ToggleHandInspectMode();
             if (KInput.GetKeyDown(KeyCode.H)) SynthesizeDeep();
             if (KInput.GetKeyDown(KeyCode.C)) ExecuteGhostCarve();
             if (KInput.GetKeyDown(KeyCode.V)) ToggleEnvelopeRecording();
@@ -1380,30 +1747,41 @@ namespace KineticCore.Runtime
                 }
             }
 
-            GUI.Box(new Rect(12, 12, 520, 248), "");
-            GUILayout.BeginArea(new Rect(20, 18, 504, 236));
-            GUILayout.Label($"<b>KINETIC-CAD XR | AEGIS PAYLOAD & SPATIAL ROBOTICS STUDIO</b>  ({ManualTestWidthMm:F0} mm)");
-            GUILayout.Label($"Engine: {ActiveNebiusModel} ({LastApiLatencyMs} ms) | {(LastSpecFromAi ? "<color=#20FF60>[AI Spec ✓]</color>" : "<color=#FFB020>[PoE Parametric]</color>")} | μ={CurrentManipulability:E2} | h(x)={CurrentBarrierHxMm:F1}mm");
+            int dofCount = CurrentChain != null ? CurrentChain.Joints.Length : 3;
+            GUI.Box(new Rect(12, 12, 540, 272), "");
+            GUILayout.BeginArea(new Rect(20, 18, 524, 260));
+            GUILayout.Label($"<b>KINETIC-CAD XR | SPATIAL FUSION 360 & MODULAR ROBOTICS STUDIO</b> ({dofCount}-DoF)");
+            GUILayout.Label($"1:1 CAD Solid: {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm [{CadFeatureOpNames[CadFeatureOpIndex]}] | {CadPartMassGrams:F1}g {CadMaterialNames[CadMaterialIndex]}");
             GUILayout.Label($"{AgentRecommendation}");
             GUILayout.Label($"Status: {StatusMessage}");
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"Caliper: {ManualTestWidthMm:F0}mm", GUILayout.Width(95));
-            if (GUILayout.Button("-5mm [[]", GUILayout.Width(64))) ScrubDimensionMm(-5.0);
-            double newWidth = GUILayout.HorizontalSlider((float)ManualTestWidthMm, 20f, 250f, GUILayout.Width(160));
-            if (System.Math.Abs(newWidth - ManualTestWidthMm) > 0.5)
+            GUILayout.Label($"W:{ManualTestWidthMm:F0}mm", GUILayout.Width(62));
+            double newW = GUILayout.HorizontalSlider((float)ManualTestWidthMm, 20f, 250f, GUILayout.Width(95));
+            GUILayout.Label($"D:{CapturedDepthMm:F0}mm", GUILayout.Width(62));
+            double newD = GUILayout.HorizontalSlider((float)CapturedDepthMm, 20f, 180f, GUILayout.Width(85));
+            GUILayout.Label($"H:{CapturedHeightMm:F0}mm", GUILayout.Width(62));
+            double newH = GUILayout.HorizontalSlider((float)CapturedHeightMm, 12f, 120f, GUILayout.Width(85));
+            if (System.Math.Abs(newW - ManualTestWidthMm) > 0.5 || System.Math.Abs(newD - CapturedDepthMm) > 0.5 || System.Math.Abs(newH - CapturedHeightMm) > 0.5)
             {
-                ManualTestWidthMm = newWidth;
+                ManualTestWidthMm = newW;
+                CapturedDepthMm = newD;
+                CapturedHeightMm = newH;
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
             }
-            if (GUILayout.Button("+5mm []]", GUILayout.Width(64))) ScrubDimensionMm(+5.0);
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button($"+Snap Module ({dofCount}DoF) [N]")) SnapAddModularJointAndLink();
+            if (GUILayout.Button($"Feature: {CadFeatureOpNames[CadFeatureOpIndex]} [F]")) CycleCadFeatureOp();
+            if (GUILayout.Button($"Mat: {CadMaterialNames[CadMaterialIndex].Split(' ')[0]} [M]")) CycleCadMaterial();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Fast Synth [G]")) SynthesizeFast();
-            if (GUILayout.Button(RecordEnvelopeActive ? "Rec W_i: ON [V]" : "Rec W_i: OFF [V]")) ToggleEnvelopeRecording();
+            if (GUILayout.Button(HandInspectActive ? "1:1 In-Hand: ON [I]" : "Hold 1:1 Print [I]")) ToggleHandInspectMode();
             if (GUILayout.Button("Ghost Carve [C]")) ExecuteGhostCarve();
-            if (GUILayout.Button("Export URDF [U]")) ExportUrdf();
+            if (GUILayout.Button("Export STL+OBJ+URDF [U]")) ExportUrdf();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
@@ -1424,8 +1802,9 @@ namespace KineticCore.Runtime
 
             string specTag = LastSpecFromAi ? "[AI Spec ✓]" : "[PoE Parametric]";
             string s1 = _stepSynthDone ? "✓" : "1";
-            string s2 = (SweptSampleCount >= 4 || _stepPuppetDone) ? "✓" : "2";
+            string s2 = (SweptSampleCount >= 4 || _stepPuppetDone || SnappedModuleCount > 0) ? "✓" : "2";
             string s3 = (IsHousingCarved || _stepAuditOrExportDone) ? "✓" : "3";
+            int dofCount = _theta.Length;
 
             double muRatio = ReferenceManipulability > 1e-6 ? (CurrentManipulability / ReferenceManipulability) : 1.0;
             string muSymbol = muRatio > 0.65 ? "[▲ OPTIMAL]" : (muRatio > 0.38 ? "[◆ CAUTION]" : "[▼ SINGULARITY]");
@@ -1434,8 +1813,8 @@ namespace KineticCore.Runtime
                 : $"h(x)={CurrentBarrierHxMm:F1}mm < 0 [■ {ClashedVoxelCount} VOX CLASH]";
 
             _vrHologramText.text =
-                $"KINETIC-CAD XR | AEGIS PAYLOAD & SPATIAL ROBOTICS STUDIO ({ManualTestWidthMm:F0}mm)\n" +
-                $"[{s1}]Step1: Caliper/Thumb-Swipe(±5mm)  [{s2}]Step2: Sweep W_i({SweptSampleCount})  [{s3}]Step3: Ghost Carve & CBF\n" +
+                $"KINETIC-CAD XR | SPATIAL FUSION 360 & MODULAR ROBOTICS ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {dofCount}-DoF)\n" +
+                $"[{s1}]Step1: 3D Capture/Feature({CadFeatureOpNames[CadFeatureOpIndex]})  [{s2}]Step2: +Snap Module({dofCount}DoF)/Sweep  [{s3}]Step3: Carve & Export\n" +
                 $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | μ={CurrentManipulability:E2} {muSymbol} | {cbfStatus}\n" +
                 $"{AgentRecommendation}\n" +
                 $"{StatusMessage}";
@@ -1451,11 +1830,11 @@ namespace KineticCore.Runtime
 
                 string rName = CurrentSpec.robotName ?? "kinetic_claw";
                 _urdfInspectorText.text =
-                    $"=== ROS 2 URDF + AEGIS CBF INSPECTOR ===\n" +
-                    $"<robot name=\"{rName}\"> | {rName}_cbf_envelope.json\n" +
-                    $"  Swept W_i: {SweptSampleCount} capsules | Carved: -{CarvedVoxelCount} vox | {cbfStatus}\n" +
-                    $"  UDP :9870 -> {{\"q\":[{_theta[0]:F2},{_theta[1]:F2},{_theta[2]:F2}],\"mu\":{CurrentManipulability:F4}}}\n" +
-                    $"  {ChallengeTitles[Mathf.Clamp(CurrentChallengeLevel - 1, 0, ChallengeTitles.Length - 1)]} ({LastDeliveryStarRating}) | Career: {CareerDeliveries} Placed, {CareerHousingsCarved} Carved";
+                    $"=== DUAL MESH (.STL / .OBJ) + ROS 2 .URDF INSPECTOR ===\n" +
+                    $"Files: {rName}.urdf | {rName}_cad.stl | {rName}_cad.obj\n" +
+                    $"  1:1 Solid: {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm [{CadFeatureOpNames[CadFeatureOpIndex]}] | {CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m print)\n" +
+                    $"  Snapped Chain: {dofCount}-DoF (Rev+Pris) | Swept W_i: {SweptSampleCount} | Carved: -{CarvedVoxelCount} vox\n" +
+                    $"  {ChallengeTitles[Mathf.Clamp(CurrentChallengeLevel - 1, 0, ChallengeTitles.Length - 1)]} ({LastDeliveryStarRating}) | Career: {CareerDeliveries} Placed, {CareerUrdfExports} Exports";
             }
 
             if (_specSheetText != null && CurrentSpec != null)
@@ -1478,11 +1857,11 @@ namespace KineticCore.Runtime
                 string topoLabel = topoNames[((_topologyVariantIndex % 4) + 4) % 4];
 
                 _specSheetText.text =
-                    $"=== PoE SCREW & ACCESSIBILITY SHEET ===\n" +
-                    $"Topology: {topoLabel} ({specTag})\n" +
-                    $"Reach={(l1 + l2) * 1000:F0}mm | Mass={mTotal:F2}kg | Peak τ={tauPeak:F2}Nm | {muSymbol}\n" +
-                    $"CBF Barrier: h(x) = min ||p_obs - p_k|| - (r_l + r_m) = {CurrentBarrierHxMm:F1}mm\n" +
-                    $"Seated Lap Mode: Gaze+Pinch (260ms) | Thumb-Swipe (±5mm) | Thumb-Tap (Carve)";
+                    $"=== SPATIAL FUSION CAD & PoE SCREW SHEET ===\n" +
+                    $"Base: {topoLabel} ({dofCount}-DoF {specTag})\n" +
+                    $"Material: {CadMaterialNames[CadMaterialIndex]} | Part Vol={CadPartVolumeCm3:F1}cm³ | Mass={CadPartMassGrams:F1}g\n" +
+                    $"Reach={(l1 + l2) * 1000:F0}mm | Total Mass={mTotal:F2}kg | Peak τ={tauPeak:F2}Nm | {muSymbol}\n" +
+                    $"1:1 Print Preview: {(HandInspectActive ? "[ACTIVE IN LEFT HAND]" : "Poke [HOLD 1:1 PRINT] to inspect in hand")}";
             }
         }
 
@@ -1493,13 +1872,14 @@ namespace KineticCore.Runtime
             // Always apply the selected topology immediately (<1ms) so hands-first button pokes and caliper locks
             // give instant 90Hz visual + tactile audio response on Quest 3 without waiting on network latency!
             UpdateSampleWorkpieceVisual(widthMm);
-            MechanismSpec instantSpec = NebiusKinematicSynthesizer.BuildDeterministicMechanism(widthMm, _topologyVariantIndex);
+            MechanismSpec instantSpec = AppendSnappedModulesToSpec(
+                NebiusKinematicSynthesizer.BuildDeterministicMechanism(widthMm, _topologyVariantIndex));
             ApplyMechanismSpec(instantSpec);
             _spawnAnimTimer = 1.0f;
 
             string[] topoNames = { "Articulated 3R Claw", "SCARA Selective Arm", "Heavy Turret Palletizer", "Precision Wrist Probe" };
             string topoLabel = topoNames[((_topologyVariantIndex % 4) + 4) % 4];
-            StatusMessage = $"SYNTHESIZED: {topoLabel} ({widthMm:F0}mm jaw span)";
+            StatusMessage = $"SYNTHESIZED: {topoLabel} ({widthMm:F0}mm jaw span | {instantSpec.joints.Length}-DoF)";
             WriteDiagnosticState("SynthesizeFast_Instant");
 
             if (IsSynthesisInFlight) return;
@@ -1524,7 +1904,7 @@ namespace KineticCore.Runtime
                 LastApiLatencyMs = synth.LastLatencyMs;
                 if (LastSpecFromAi && aiSpec != null && _topologyVariantIndex == 0)
                 {
-                    ApplyMechanismSpec(aiSpec);
+                    ApplyMechanismSpec(AppendSnappedModulesToSpec(aiSpec));
                     _spawnAnimTimer = 0.7f;
                 }
                 StatusMessage = $"SYNTHESIZED: {topoLabel} ({widthMm:F0}mm | {LastSpecSource}, {LastApiLatencyMs}ms)";
@@ -1567,7 +1947,8 @@ namespace KineticCore.Runtime
         public void SynthesizeAndSpawnSync(double widthMm)
         {
             UpdateSampleWorkpieceVisual(widthMm);
-            MechanismSpec spec = NebiusKinematicSynthesizer.BuildDeterministicMechanism(widthMm, _topologyVariantIndex);
+            MechanismSpec spec = AppendSnappedModulesToSpec(
+                NebiusKinematicSynthesizer.BuildDeterministicMechanism(widthMm, _topologyVariantIndex));
             ApplyMechanismSpec(spec);
         }
 
@@ -1577,10 +1958,18 @@ namespace KineticCore.Runtime
             try
             {
                 _stepAuditOrExportDone = true;
+                string featName = CadFeatureOpNames[CadFeatureOpIndex % CadFeatureOpNames.Length];
+                string matName = CadMaterialNames[CadMaterialIndex % CadMaterialNames.Length];
+
                 LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, Application.persistentDataPath);
-                string stlPath = UrdfSerializer.SaveStlToFile(CurrentSpec, Application.persistentDataPath);
+                string stlPath = UrdfSerializer.SaveStlToFile(
+                    CurrentSpec, Application.persistentDataPath, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, CadFeatureOpIndex);
+                string objPath = UrdfSerializer.SaveObjToFile(
+                    CurrentSpec, Application.persistentDataPath, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, CadFeatureOpIndex, matName);
                 string cbfPath = UrdfSerializer.SaveCbfEnvelopeToFile(
-                    CurrentSpec, Application.persistentDataPath, CurrentBarrierHxMm, SweptSampleCount, CarvedVoxelCount, IsHousingCarved);
+                    CurrentSpec, Application.persistentDataPath, CurrentBarrierHxMm, SweptSampleCount, CarvedVoxelCount, IsHousingCarved,
+                    ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, featName, matName, CadPartMassGrams);
+
                 if (Application.isEditor)
                 {
                     try
@@ -1590,26 +1979,30 @@ namespace KineticCore.Runtime
                         {
                             string exportsDir = Path.Combine(rootDir.FullName, "Exports");
                             LastExportedUrdfPath = UrdfSerializer.SaveUrdfToFile(CurrentSpec, exportsDir);
-                            stlPath = UrdfSerializer.SaveStlToFile(CurrentSpec, exportsDir);
+                            stlPath = UrdfSerializer.SaveStlToFile(
+                                CurrentSpec, exportsDir, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, CadFeatureOpIndex);
+                            objPath = UrdfSerializer.SaveObjToFile(
+                                CurrentSpec, exportsDir, ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, CadFeatureOpIndex, matName);
                             cbfPath = UrdfSerializer.SaveCbfEnvelopeToFile(
-                                CurrentSpec, exportsDir, CurrentBarrierHxMm, SweptSampleCount, CarvedVoxelCount, IsHousingCarved);
+                                CurrentSpec, exportsDir, CurrentBarrierHxMm, SweptSampleCount, CarvedVoxelCount, IsHousingCarved,
+                                ManualTestWidthMm, CapturedDepthMm, CapturedHeightMm, featName, matName, CadPartMassGrams);
                         }
                     }
                     catch { }
                 }
-                _exportFlashTimer = 0.8f; // Flash robot links bright emerald green to confirm URDF + CBF + STL export!
+                _exportFlashTimer = 0.8f; // Flash robot links bright emerald green to confirm URDF + STL + OBJ + CBF export!
                 CareerUrdfExports++;
                 PlayerPrefs.SetInt("KineticCAD_TotalExports", CareerUrdfExports);
                 PlayerPrefs.Save();
                 SpatialTactileAudio.Instance?.PlayExportSuccess();
-                StatusMessage = $"EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} + {Path.GetFileName(cbfPath)} + {Path.GetFileName(stlPath)}";
-                Debug.Log($"[KineticCAD] Exported URDF: {LastExportedUrdfPath} | CBF: {cbfPath} | STL: {stlPath}");
+                StatusMessage = $"EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} + {Path.GetFileName(stlPath)} + {Path.GetFileName(objPath)} + {Path.GetFileName(cbfPath)}";
+                Debug.Log($"[KineticCAD] Exported URDF: {LastExportedUrdfPath} | STL: {stlPath} | OBJ: {objPath} | CBF: {cbfPath}");
                 WriteDiagnosticState("ExportUrdf");
             }
             catch (Exception ex)
             {
                 Debug.LogException(ex);
-                StatusMessage = "URDF/STL export failed (see log)";
+                StatusMessage = "URDF/STL/OBJ export failed (see log)";
             }
         }
 
@@ -1621,9 +2014,8 @@ namespace KineticCore.Runtime
                 if (_sampleWorkpiece != null)
                 {
                     _sampleWorkpiece.localRotation = Quaternion.identity;
-                    if (_workpieceRenderer != null)
-                        SetColorSafe(_workpieceRenderer, new Color(0.18f, 0.55f, 0.72f));
                 }
+                UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             }
             CurrentSpec = spec;
             CurrentChain = spec.ToPoEChain(out _minLimits, out _maxLimits);
@@ -1678,20 +2070,23 @@ namespace KineticCore.Runtime
                 pivot.transform.SetParent(_mechanismRoot.transform, false);
                 _jointPivots[i] = pivot.transform;
 
-                GameObject pin = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                pin.name = "ScrewAxisPin";
+                bool isPrismatic = string.Equals(j.jointType, "prismatic", StringComparison.OrdinalIgnoreCase);
+                GameObject pin = GameObject.CreatePrimitive(isPrismatic ? PrimitiveType.Cube : PrimitiveType.Cylinder);
+                pin.name = isPrismatic ? "PrismaticSliderRail" : "ScrewAxisPin";
                 Destroy(pin.GetComponent<Collider>());
                 pin.transform.SetParent(pivot.transform, false);
                 pin.transform.localPosition = new Vector3((float)j.originX, (float)j.originY, (float)j.originZ);
                 Vector3 axisDir = new Vector3((float)j.axisX, (float)j.axisY, (float)j.axisZ).normalized;
                 if (axisDir.sqrMagnitude > 0.001f)
                     pin.transform.localRotation = Quaternion.FromToRotation(Vector3.up, axisDir);
-                pin.transform.localScale = new Vector3(0.020f, 0.024f, 0.020f);
+                pin.transform.localScale = isPrismatic
+                    ? new Vector3(0.016f, 0.042f, 0.016f)
+                    : new Vector3(0.020f, 0.024f, 0.020f);
                 _pinRenderers[i] = pin.GetComponent<Renderer>();
-                SetColorSafe(_pinRenderers[i], new Color(0.0f, 0.95f, 1.0f));
+                SetColorSafe(_pinRenderers[i], isPrismatic ? new Color(1.0f, 0.80f, 0.15f) : new Color(0.0f, 0.95f, 1.0f));
             }
 
-            // Attach each moving link to the joint whose frame carries it (supports both 2-DoF co-located shoulder 3R arms and True SCARA!)
+            // Attach each moving link to the joint whose frame carries it (supports 3R, True SCARA, and N-DoF Snapped Modules!)
             bool coLocatedShoulder = (n >= 2 && System.Math.Abs(spec.joints[1].originX - spec.joints[0].originX) < 0.02);
             int movingLinks = System.Math.Max(0, linkCount - 1);
             int offset = coLocatedShoulder ? System.Math.Max(0, n - movingLinks) : 0;
@@ -1718,6 +2113,17 @@ namespace KineticCore.Runtime
             tip.transform.localScale = Vector3.one * 0.022f;
             SetColorSafe(tip.GetComponent<Renderer>(), new Color(0.2f, 1.0f, 0.4f));
             _eeMarker = tip.transform;
+
+            // Coaxial Magnetic Snap Port Ring at the distal end-effector tip
+            GameObject snapRing = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            snapRing.name = "Distal_CoaxialSnapPortRing";
+            Destroy(snapRing.GetComponent<Collider>());
+            snapRing.transform.SetParent(_eeMarker, false);
+            snapRing.transform.localPosition = new Vector3(-0.35f, 0f, 0f);
+            snapRing.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            snapRing.transform.localScale = new Vector3(1.55f, 0.12f, 1.55f);
+            SetColorSafe(snapRing.GetComponent<Renderer>(), new Color(1.0f, 0.78f, 0.15f));
+            _distalSnapPortRing = snapRing.transform;
 
             // Articulated Parallel Jaw Gripper Assembly scaled to measured caliper width
             float jawSpanM = Mathf.Clamp((float)(spec.targetCaliperWidthMm * 0.001), 0.024f, 0.22f);
@@ -1772,11 +2178,35 @@ namespace KineticCore.Runtime
                 if (_pinRenderers != null && i < _pinRenderers.Length && _pinRenderers[i] != null &&
                     _minLimits != null && _maxLimits != null && i < _minLimits.Length)
                 {
-                    double span = System.Math.Max(0.2, _maxLimits[i] - _minLimits[i]);
+                    bool isPris = (CurrentSpec?.joints != null && i < CurrentSpec.joints.Length &&
+                                   string.Equals(CurrentSpec.joints[i].jointType, "prismatic", StringComparison.OrdinalIgnoreCase));
+                    double span = System.Math.Max(0.05, _maxLimits[i] - _minLimits[i]);
                     double margin = System.Math.Min(_theta[i] - _minLimits[i], _maxLimits[i] - _theta[i]);
                     float limitSafety = Mathf.Clamp01((float)(margin / (span * 0.22)));
-                    Color pinCol = Color.Lerp(new Color(1.0f, 0.35f, 0.15f), new Color(0.0f, 0.95f, 1.0f), limitSafety);
+                    Color basePinCol = isPris ? new Color(1.0f, 0.82f, 0.15f) : new Color(0.0f, 0.95f, 1.0f);
+                    Color pinCol = Color.Lerp(new Color(1.0f, 0.35f, 0.15f), basePinCol, limitSafety);
                     SetColorSafe(_pinRenderers[i], pinCol);
+                }
+            }
+
+            if (_distalSnapPortRing != null)
+            {
+                float ringPulse = 1.45f + 0.18f * Mathf.Sin(Time.time * 4.5f);
+                _distalSnapPortRing.localScale = new Vector3(ringPulse, 0.12f, ringPulse);
+
+                // Direct Hands-On Coaxial Magnetic Port Snapping: bring Left Index Tip within 3.2cm of the distal snap port!
+                if (!IsFlatEditorMode && _graspCooldownTimer <= 0f)
+                {
+                    if (_cachedTipReader == null) _cachedTipReader = FindAnyObjectByType<HandFingertipReader>();
+                    if (_cachedTipReader != null && _cachedTipReader.LeftPointingOnly)
+                    {
+                        float snapDist = Vector3.Distance(_cachedTipReader.LeftWorld, _distalSnapPortRing.position);
+                        if (snapDist < 0.032f)
+                        {
+                            _graspCooldownTimer = 1.4f;
+                            SnapAddModularJointAndLink();
+                        }
+                    }
                 }
             }
 
@@ -1838,11 +2268,8 @@ namespace KineticCore.Runtime
                     _isHoldingWorkpiece = true;
                     _minManipulabilityDuringCarry = CurrentManipulability;
                     SpatialTactileAudio.Instance?.PlayCaliperLock(_eeMarker.position);
-                    if (_workpieceRenderer != null)
-                        SetColorSafe(_workpieceRenderer, new Color(0.25f, 1.0f, 0.55f));
-                    if (_workpieceLabel != null)
-                        _workpieceLabel.text = $"GRASPED ({ManualTestWidthMm:F0} mm)\nMove to Drop Zone ->";
-                    StatusMessage = $"GRASP LOCKED (Lv{CurrentChallengeLevel}) -> Keep arm cyan & deliver to Drop Zone!";
+                    UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+                    StatusMessage = $"GRASP LOCKED (Lv{CurrentChallengeLevel}) -> Keep arm cyan & deliver CAD part to Drop Zone!";
                 }
             }
             else
@@ -1885,15 +2312,8 @@ namespace KineticCore.Runtime
                     SynthesizeAndSpawnSync(ManualTestWidthMm);
 
                     UpdateReachEnvelopeAndStationPositions(_lastReachMeters);
-                    _sampleWorkpiece.localPosition = _workpieceHomeLocalPos;
                     _sampleWorkpiece.localRotation = Quaternion.identity;
-                    if (_workpieceRenderer != null)
-                        SetColorSafe(_workpieceRenderer, new Color(0.18f, 0.55f, 0.72f));
-                    if (_workpieceLabel != null)
-                    {
-                        _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, 0.024f, 0f);
-                        _workpieceLabel.text = $"PICKUP WORKPIECE\n{ManualTestWidthMm:F0} mm";
-                    }
+                    UpdateSampleWorkpieceVisual(ManualTestWidthMm);
                     if (_dropZoneLabel != null)
                         _dropZoneLabel.text = $"DROP ZONE (Lv{CurrentChallengeLevel})\nGrasps: {CompletedGraspCount} | {LastDeliveryStarRating}";
 

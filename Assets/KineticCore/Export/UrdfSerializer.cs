@@ -249,22 +249,50 @@ namespace KineticCore.Export
 
         /// <summary>
         /// Exports a watertight ASCII STL 3D-printable CAD mesh (millimeter units for slicers such as Bambu Studio / PrusaSlicer)
-        /// containing the base pedestal, articulated links, and parallel-jaw gripper assembly scaled to targetCaliperWidthMm.
+        /// containing the captured real-world CAD solid, base pedestal, articulated modular links, and parallel-jaw gripper assembly.
         /// </summary>
-        public static string SaveStlToFile(MechanismSpec spec, string directoryPath)
+        public static string SaveStlToFile(
+            MechanismSpec spec,
+            string directoryPath,
+            double capturedWidthMm = 70.0,
+            double capturedDepthMm = 55.0,
+            double capturedHeightMm = 42.0,
+            int cadFeatureOp = 0)
         {
             if (!Directory.Exists(directoryPath))
                 Directory.CreateDirectory(directoryPath);
 
             string fileName = Sanitize(string.IsNullOrEmpty(spec.robotName) ? "kinetic_cad_mechanism" : spec.robotName);
             string filePath = Path.Combine(directoryPath, $"{fileName}_cad.stl");
-            File.WriteAllText(filePath, SerializeToAsciiStl(spec));
+            File.WriteAllText(filePath, SerializeToAsciiStl(spec, capturedWidthMm, capturedDepthMm, capturedHeightMm, cadFeatureOp));
+            return filePath;
+        }
+
+        /// <summary>
+        /// Exports a multi-group Wavefront OBJ 3D CAD mesh (<robot>_cad.obj) with named object groups
+        /// (Captured_RealWorld_Solid, Base_Pedestal, Modular_Links, Parallel_Gripper) for Fusion 360 / Blender / SolidWorks.
+        /// </summary>
+        public static string SaveObjToFile(
+            MechanismSpec spec,
+            string directoryPath,
+            double capturedWidthMm = 70.0,
+            double capturedDepthMm = 55.0,
+            double capturedHeightMm = 42.0,
+            int cadFeatureOp = 0,
+            string materialName = "PLA_Plus_1240kgm3")
+        {
+            if (!Directory.Exists(directoryPath))
+                Directory.CreateDirectory(directoryPath);
+
+            string fileName = Sanitize(string.IsNullOrEmpty(spec?.robotName) ? "kinetic_cad_mechanism" : spec.robotName);
+            string filePath = Path.Combine(directoryPath, $"{fileName}_cad.obj");
+            File.WriteAllText(filePath, SerializeToWavefrontObj(spec, capturedWidthMm, capturedDepthMm, capturedHeightMm, cadFeatureOp, materialName));
             return filePath;
         }
 
         /// <summary>
         /// Exports the Swept-Volume Control Barrier Function (CBF: h(x) = min ||p_obs - p_k(theta)||_2 - (r_link + r_margin) >= 0)
-        /// envelope package for AEGIS FlightOS and ROS 2 collision-free trajectory verification.
+        /// envelope and Spatial Fusion CAD manifest for AEGIS FlightOS, 3D printing slicers, and ROS 2.
         /// </summary>
         public static string SaveCbfEnvelopeToFile(
             MechanismSpec spec,
@@ -272,7 +300,13 @@ namespace KineticCore.Export
             double minClearanceMm,
             int sweptCapsuleCount,
             int carvedVoxelCount,
-            bool housingCarved)
+            bool housingCarved,
+            double capturedWidthMm = 70.0,
+            double capturedDepthMm = 55.0,
+            double capturedHeightMm = 42.0,
+            string cadFeatureLabel = "Solid Extrude",
+            string cadMaterialLabel = "PLA+ (1.24 g/cm3)",
+            double cadPartMassGrams = 48.5)
         {
             if (!Directory.Exists(directoryPath))
                 Directory.CreateDirectory(directoryPath);
@@ -283,13 +317,19 @@ namespace KineticCore.Export
             double l1 = (spec?.links != null && spec.links.Length > 1) ? spec.links[1].lengthM : 0.14;
             double l2 = (spec?.links != null && spec.links.Length > 2) ? spec.links[2].lengthM : 0.11;
             double rLinkMm = (spec?.links != null && spec.links.Length > 1) ? spec.links[1].widthM * 500.0 : 13.0;
-            double rMarginMm = 6.0;
+            double rMarginMm = 10.0;
+            int dofCount = (spec?.joints != null) ? spec.joints.Length : 3;
 
-            StringBuilder sb = new StringBuilder(1024);
+            StringBuilder sb = new StringBuilder(1280);
             sb.AppendLine("{");
-            sb.AppendLine($"  \"schema\": \"AEGIS_FlightOS_SweptVolume_CBF_v1\",");
+            sb.AppendLine($"  \"schema\": \"AEGIS_FlightOS_SpatialFusion_CBF_v2\",");
             sb.AppendLine($"  \"robotName\": \"{fileName}\",");
+            sb.AppendLine($"  \"kinematicDoF\": {dofCount},");
             sb.AppendLine(string.Format(Inv, "  \"targetCaliperWidthMm\": {0:F2},", spec != null ? spec.targetCaliperWidthMm : 70.0));
+            sb.AppendLine(string.Format(Inv, "  \"capturedRealObjectDimsMm\": [{0:F1}, {1:F1}, {2:F1}],", capturedWidthMm, capturedDepthMm, capturedHeightMm));
+            sb.AppendLine($"  \"fusionCadFeatureOp\": \"{cadFeatureLabel}\",");
+            sb.AppendLine($"  \"engineeringMaterial\": \"{cadMaterialLabel}\",");
+            sb.AppendLine(string.Format(Inv, "  \"estimated3DPrintMassGrams\": {0:F2},", cadPartMassGrams));
             sb.AppendLine($"  \"controlBarrierFunction\": \"h(x) = min_k ||p_obs - p_k(theta)||_2 - (r_link + r_margin) >= 0\",");
             sb.AppendLine(string.Format(Inv, "  \"rLinkMm\": {0:F2},", rLinkMm));
             sb.AppendLine(string.Format(Inv, "  \"rSafetyMarginMm\": {0:F2},", rMarginMm));
@@ -305,12 +345,21 @@ namespace KineticCore.Export
             return filePath;
         }
 
-        public static string SerializeToAsciiStl(MechanismSpec spec)
+        public static string SerializeToAsciiStl(
+            MechanismSpec spec,
+            double capturedWidthMm = 70.0,
+            double capturedDepthMm = 55.0,
+            double capturedHeightMm = 42.0,
+            int cadFeatureOp = 0)
         {
-            StringBuilder sb = new StringBuilder(16384);
+            StringBuilder sb = new StringBuilder(20480);
             string solidName = Sanitize(string.IsNullOrEmpty(spec?.robotName) ? "kinetic_cad_mechanism" : spec.robotName);
             sb.AppendLine($"solid {solidName}");
 
+            // 1. Captured Real-World Parametric CAD Solid (offset at X = -120mm on build plate for clean multi-part slicing)
+            AppendCapturedCadFeatureStl(sb, -120.0, 0.0, capturedWidthMm, capturedDepthMm, capturedHeightMm, cadFeatureOp);
+
+            // 2. Articulated Modular Links
             if (spec?.links != null)
             {
                 for (int i = 0; i < spec.links.Length; i++)
@@ -328,7 +377,7 @@ namespace KineticCore.Export
                 }
             }
 
-            // Append parallel-jaw gripper assembly at end-effector home position (in mm)
+            // 3. Parallel-jaw gripper assembly at end-effector home position (in mm)
             double eeX = (spec?.endEffectorHomePosition != null && spec.endEffectorHomePosition.Length == 3) ? spec.endEffectorHomePosition[0] * 1000.0 : 220.0;
             double eeZ = (spec?.endEffectorHomePosition != null && spec.endEffectorHomePosition.Length == 3) ? spec.endEffectorHomePosition[1] * 1000.0 : 60.0;
             double jawSpanMm = System.Math.Max(24.0, System.Math.Min(220.0, spec != null ? spec.targetCaliperWidthMm : 70.0));
@@ -340,6 +389,119 @@ namespace KineticCore.Export
 
             sb.AppendLine($"endsolid {solidName}");
             return sb.ToString();
+        }
+
+        private static void AppendCapturedCadFeatureStl(
+            StringBuilder sb, double offsetX, double offsetY,
+            double wMm, double dMm, double hMm, int cadFeatureOp)
+        {
+            double w = System.Math.Max(15.0, wMm);
+            double d = System.Math.Max(15.0, dMm);
+            double h = System.Math.Max(10.0, hMm);
+
+            if (cadFeatureOp == 1) // Shell 2.5mm Hollow Enclosure (floor + 4 walls)
+            {
+                double t = 2.5;
+                AppendStlBox(sb, offsetX, offsetY, t * 0.5, w, d, t); // Base floor
+                AppendStlBox(sb, offsetX, offsetY - (d - t) * 0.5, h * 0.5, w, t, h); // Front wall
+                AppendStlBox(sb, offsetX, offsetY + (d - t) * 0.5, h * 0.5, w, t, h); // Back wall
+                AppendStlBox(sb, offsetX - (w - t) * 0.5, offsetY, h * 0.5, t, d - 2 * t, h); // Left wall
+                AppendStlBox(sb, offsetX + (w - t) * 0.5, offsetY, h * 0.5, t, d - 2 * t, h); // Right wall
+            }
+            else if (cadFeatureOp == 3) // L-Bracket Structural Mount
+            {
+                double t = System.Math.Max(4.0, System.Math.Min(w, h) * 0.16);
+                AppendStlBox(sb, offsetX, offsetY, t * 0.5, w, d, t); // Horizontal base flange
+                AppendStlBox(sb, offsetX - (w - t) * 0.5, offsetY, h * 0.5, t, d, h); // Vertical flange
+                AppendStlBox(sb, offsetX - w * 0.22, offsetY - (d - t) * 0.42, h * 0.28, w * 0.35, t, h * 0.35); // Gusset 1
+                AppendStlBox(sb, offsetX - w * 0.22, offsetY + (d - t) * 0.42, h * 0.28, w * 0.35, t, h * 0.35); // Gusset 2
+            }
+            else // Solid Extrude (0) or Chamfered Mount with M4 Corner Bosses (2)
+            {
+                AppendStlBox(sb, offsetX, offsetY, h * 0.5, w, d, h);
+                if (cadFeatureOp == 2)
+                {
+                    double bx = w * 0.38, by = d * 0.38;
+                    AppendStlBox(sb, offsetX - bx, offsetY - by, h + 2.0, 6.0, 6.0, 4.0);
+                    AppendStlBox(sb, offsetX + bx, offsetY - by, h + 2.0, 6.0, 6.0, 4.0);
+                    AppendStlBox(sb, offsetX - bx, offsetY + by, h + 2.0, 6.0, 6.0, 4.0);
+                    AppendStlBox(sb, offsetX + bx, offsetY + by, h + 2.0, 6.0, 6.0, 4.0);
+                }
+            }
+        }
+
+        public static string SerializeToWavefrontObj(
+            MechanismSpec spec,
+            double capturedWidthMm,
+            double capturedDepthMm,
+            double capturedHeightMm,
+            int cadFeatureOp,
+            string materialName)
+        {
+            StringBuilder sb = new StringBuilder(16384);
+            string solidName = Sanitize(string.IsNullOrEmpty(spec?.robotName) ? "kinetic_cad_mechanism" : spec.robotName);
+            sb.AppendLine($"# KineticCAD XR — Spatial Fusion 360 Wavefront OBJ Export");
+            sb.AppendLine($"# Robot/Assembly: {solidName} | Material: {materialName} | Units: millimeters");
+            int vOffset = 1;
+
+            // Group 1: Captured 1:1 Real-World Parametric CAD Solid
+            sb.AppendLine($"o Captured_RealWorld_CAD_Part_{cadFeatureOp}");
+            AppendObjBox(sb, ref vOffset, -120.0, 0.0, capturedHeightMm * 0.5, capturedWidthMm, capturedDepthMm, capturedHeightMm);
+
+            // Group 2: Modular Kinematic Links
+            if (spec?.links != null)
+            {
+                for (int i = 0; i < spec.links.Length; i++)
+                {
+                    LinkSpec lk = spec.links[i];
+                    if (lk == null) continue;
+                    sb.AppendLine($"o {Sanitize(lk.name)}_{i}");
+                    double cx = lk.centerX * 1000.0;
+                    double cy = lk.centerZ * 1000.0;
+                    double cz = lk.centerY * 1000.0;
+                    double sx = System.Math.Max(8.0, lk.lengthM * 1000.0);
+                    double sy = System.Math.Max(8.0, lk.widthM * 1000.0);
+                    double sz = System.Math.Max(8.0, lk.heightM * 1000.0);
+                    AppendObjBox(sb, ref vOffset, cx, cy, cz, sx, sy, sz);
+                }
+            }
+
+            // Group 3: Parallel-Jaw Gripper Assembly
+            double eeX = (spec?.endEffectorHomePosition != null && spec.endEffectorHomePosition.Length == 3) ? spec.endEffectorHomePosition[0] * 1000.0 : 220.0;
+            double eeZ = (spec?.endEffectorHomePosition != null && spec.endEffectorHomePosition.Length == 3) ? spec.endEffectorHomePosition[1] * 1000.0 : 60.0;
+            double jawSpanMm = System.Math.Max(24.0, System.Math.Min(220.0, spec != null ? spec.targetCaliperWidthMm : 70.0));
+            sb.AppendLine("o Parallel_Gripper_Assembly");
+            AppendObjBox(sb, ref vOffset, eeX, 0.0, eeZ, 10.0, jawSpanMm + 16.0, 8.0);
+            AppendObjBox(sb, ref vOffset, eeX + 14.0, -jawSpanMm * 0.5, eeZ, 28.0, 6.0, 12.0);
+            AppendObjBox(sb, ref vOffset, eeX + 14.0,  jawSpanMm * 0.5, eeZ, 28.0, 6.0, 12.0);
+
+            return sb.ToString();
+        }
+
+        private static void AppendObjBox(StringBuilder sb, ref int vStart, double cx, double cy, double cz, double sx, double sy, double sz)
+        {
+            double hx = sx * 0.5, hy = sy * 0.5, hz = sz * 0.5;
+            double x0 = cx - hx, x1 = cx + hx;
+            double y0 = cy - hy, y1 = cy + hy;
+            double z0 = cz - hz, z1 = cz + hz;
+
+            sb.AppendLine(string.Format(Inv, "v {0:F4} {1:F4} {2:F4}", x0, y0, z0));
+            sb.AppendLine(string.Format(Inv, "v {0:F4} {1:F4} {2:F4}", x1, y0, z0));
+            sb.AppendLine(string.Format(Inv, "v {0:F4} {1:F4} {2:F4}", x1, y1, z0));
+            sb.AppendLine(string.Format(Inv, "v {0:F4} {1:F4} {2:F4}", x0, y1, z0));
+            sb.AppendLine(string.Format(Inv, "v {0:F4} {1:F4} {2:F4}", x0, y0, z1));
+            sb.AppendLine(string.Format(Inv, "v {0:F4} {1:F4} {2:F4}", x1, y0, z1));
+            sb.AppendLine(string.Format(Inv, "v {0:F4} {1:F4} {2:F4}", x1, y1, z1));
+            sb.AppendLine(string.Format(Inv, "v {0:F4} {1:F4} {2:F4}", x0, y1, z1));
+
+            int b = vStart;
+            sb.AppendLine($"f {b+4} {b+5} {b+6} {b+7}");
+            sb.AppendLine($"f {b+3} {b+2} {b+1} {b+0}");
+            sb.AppendLine($"f {b+1} {b+2} {b+6} {b+5}");
+            sb.AppendLine($"f {b+3} {b+0} {b+4} {b+7}");
+            sb.AppendLine($"f {b+2} {b+3} {b+7} {b+6}");
+            sb.AppendLine($"f {b+0} {b+1} {b+5} {b+4}");
+            vStart += 8;
         }
 
         private static void AppendStlBox(StringBuilder sb, double cx, double cy, double cz, double sx, double sy, double sz)

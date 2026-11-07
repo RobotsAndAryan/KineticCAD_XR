@@ -22,11 +22,15 @@ public class CaliperController : MonoBehaviour
 
     // Expose both naming conventions with [Preserve] so neither reflection nor direct calls ever fail
     [Preserve] public double CaliperWidthMm { get; private set; } = 70.0;
+    [Preserve] public double CaliperDepthMm { get; private set; } = 55.0;
+    [Preserve] public double CaliperHeightMm { get; private set; } = 42.0;
     [Preserve] public double WidthMm => CaliperWidthMm;
     [Preserve] public bool IsStable { get; private set; } = false;
     [Preserve] public bool IsMeasuringActive { get; private set; } = false;
 
     private OneEuroFilter _widthFilter;
+    private OneEuroFilter _depthFilter;
+    private OneEuroFilter _heightFilter;
     private XRHandSubsystem _handSubsystem;
     private Transform _cachedRigOrigin;
     private float _nextRigLookupTime = -10f;
@@ -49,6 +53,8 @@ public class CaliperController : MonoBehaviour
     private void Awake()
     {
         _widthFilter = new OneEuroFilter(MinCutoff, Beta, 1.0);
+        _depthFilter = new OneEuroFilter(MinCutoff, Beta, 1.0);
+        _heightFilter = new OneEuroFilter(MinCutoff, Beta, 1.0);
     }
 
     private void Start()
@@ -152,7 +158,16 @@ public class CaliperController : MonoBehaviour
             if (rawWidthMm >= 15.0 && rawWidthMm <= 320.0)
             {
                 IsMeasuringActive = true;
-                CaliperWidthMm = _widthFilter.Filter(rawWidthMm, Time.unscaledTimeAsDouble);
+                double now = Time.unscaledTimeAsDouble;
+                CaliperWidthMm = _widthFilter.Filter(rawWidthMm, now);
+
+                // Extract 3D Depth (Z-span or proportional footprint) and Height (Y elevation above physical desk surface)
+                double rawDepthMm = System.Math.Max(22.0, System.Math.Min(220.0, System.Math.Abs(dz) * 1000.0 > 18.0 ? System.Math.Abs(dz) * 1000.0 : rawWidthMm * 0.78));
+                double avgElevationM = System.Math.Max(0.015, System.Math.Min(0.180, (leftLocal.y + rightLocal.y) * 0.5));
+                double rawHeightMm = avgElevationM * 1000.0;
+
+                CaliperDepthMm = _depthFilter.Filter(rawDepthMm, now);
+                CaliperHeightMm = _heightFilter.Filter(rawHeightMm, now);
 
                 // Require a deliberate 0.70s steady hold (within ~2.0mm drift) before locking & synthesizing
                 double effectiveThresholdMm = System.Math.Max(StabilityDriftThresholdMm, 2.0);
@@ -226,8 +241,8 @@ public class CaliperController : MonoBehaviour
             }
             _caliperFloatingLabel.color = c;
             _caliperFloatingLabel.text = stable
-                ? $"CALIPER LOCKED: {widthMm:F1} mm"
-                : $"CALIPER: {widthMm:F1} mm (Hold Still)";
+                ? $"3D SOLID LOCKED: {widthMm:F0}x{CaliperDepthMm:F0}x{CaliperHeightMm:F0} mm"
+                : $"3D CAPTURE: W={widthMm:F0} D={CaliperDepthMm:F0} H={CaliperHeightMm:F0} mm (Hold)";
         }
     }
 
@@ -323,7 +338,7 @@ public class CaliperController : MonoBehaviour
                 _lastAutoSynthTime = Time.unscaledTime;
             }
 
-            MechanismController.SetCaliperWidthMm(CaliperWidthMm, triggerSynthesisNow: shouldTriggerSynth);
+            MechanismController.SetCapturedObjectDimensionsMm(CaliperWidthMm, CaliperDepthMm, CaliperHeightMm, triggerSynthesisNow: shouldTriggerSynth);
         }
 
         _wasStableLastFrame = IsStable;
