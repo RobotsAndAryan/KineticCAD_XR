@@ -226,8 +226,8 @@ namespace KineticCore.Runtime
             }
 
             Vector2 mousePos = KInput.MousePosition();
-            // Ignore clicks inside the top-left OnGUI control box (485 x 235 px)
-            bool insideGuiBox = (mousePos.x <= 485f && (Screen.height - mousePos.y) <= 235f);
+            // Ignore clicks inside the top-left OnGUI control box (535 x 265 px)
+            bool insideGuiBox = (mousePos.x <= 535f && (Screen.height - mousePos.y) <= 265f);
 
             Camera cam = (MechanismController != null && MechanismController.HeadCamera != null)
                 ? MechanismController.HeadCamera
@@ -636,24 +636,41 @@ namespace KineticCore.Runtime
                     switch (mg)
                     {
                         case OVRHand.MicrogestureType.SwipeLeft:
+                            PulseButtonVisual(0);
                             MechanismController.ScrubDimensionMm(-5.0);
                             break;
                         case OVRHand.MicrogestureType.SwipeRight:
+                            PulseButtonVisual(0);
                             MechanismController.ScrubDimensionMm(+5.0);
                             break;
                         case OVRHand.MicrogestureType.SwipeForward:
+                            PulseButtonVisual(0);
                             MechanismController.SynthesizeFast();
                             break;
                         case OVRHand.MicrogestureType.SwipeBackward:
+                            PulseButtonVisual(1);
                             MechanismController.ToggleEnvelopeRecording();
                             break;
                         case OVRHand.MicrogestureType.ThumbTap:
+                            PulseButtonVisual(2);
                             MechanismController.ExecuteGhostCarve();
                             break;
                     }
                 }
             }
             prevGesture = mg;
+        }
+
+        private void PulseButtonVisual(int idx)
+        {
+            if (_buttonTransforms == null || idx < 0 || idx >= _buttonTransforms.Length) return;
+            _lastPokeTime = Time.time;
+            _lastClickedButtonIdx = idx;
+            SetColorSafe(_buttonRenderers[idx], Color.white);
+            _buttonTransforms[idx].localScale = new Vector3(0.078f, 0.015f, 0.048f);
+            Vector3 lp = _buttonTransforms[idx].localPosition;
+            _buttonTransforms[idx].localPosition = new Vector3(lp.x, -0.0055f, lp.z);
+            SpatialTactileAudio.Instance?.PlayPokeClick(_buttonTransforms[idx].position);
         }
 
         private void InvokeControllerCommand(string actionName)

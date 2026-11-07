@@ -110,10 +110,17 @@ namespace KineticCore.Runtime
         public double CurrentBarrierHxMm { get; private set; } = -11.4;
         public int SweptSampleCount { get; private set; } = 0;
         public int CarvedVoxelCount { get; private set; } = 0;
+        public int ClashedVoxelCount { get; private set; } = 0;
+        public string AgentRecommendation { get; private set; } = "AGENTIC CO-PILOT: Sweep arm through housing bay to map W_i envelope";
+        public int CareerDeliveries { get; private set; } = 0;
+        public int CareerHousingsCarved { get; private set; } = 0;
+        public int CareerUrdfExports { get; private set; } = 0;
         private const int MaxSweptGhostCapsules = 24;
         private Transform[] _sweptGhostCapsules;
         private Renderer[] _sweptGhostRenderers;
         private Vector3[] _sweptCapsuleCenters;
+        private Vector3[] _sweptSegmentStarts;
+        private Vector3[] _sweptSegmentEnds;
         private float[] _sweptCapsuleRadii;
         private int _sweptWriteIdx = 0;
         private double[] _lastSampledTheta = new double[3];
@@ -123,6 +130,8 @@ namespace KineticCore.Runtime
         private const int HousingGridY = 3;
         private const int HousingGridZ = 4;
         private const int TotalHousingVoxels = HousingGridX * HousingGridY * HousingGridZ;
+        private static readonly Vector3 VoxelLatticeScale = new Vector3(0.0115f, 0.0115f, 0.0125f);
+        private static readonly Vector3 VoxelClashScale = new Vector3(0.0170f, 0.0170f, 0.0185f);
         private Transform[] _housingVoxelTransforms;
         private Renderer[] _housingVoxelRenderers;
         private Vector3[] _housingVoxelLocalCenters;
@@ -197,6 +206,10 @@ namespace KineticCore.Runtime
 
         private void Start()
         {
+            CareerDeliveries = PlayerPrefs.GetInt("KineticCAD_TotalDeliveries", 0);
+            CareerHousingsCarved = PlayerPrefs.GetInt("KineticCAD_TotalCarves", 0);
+            CareerUrdfExports = PlayerPrefs.GetInt("KineticCAD_TotalExports", 0);
+
             var initSynth = new NebiusKinematicSynthesizer();
             ActiveNebiusModel = initSynth.HasValidKey ? NebiusKinematicSynthesizer.FastSuperModelId : "offline-parametric";
             Debug.Log($"[KineticCAD] Nebius key file path: {initSynth.KeyFilePath} | HasValidKey={initSynth.HasValidKey} | Source={initSynth.KeySource}");
@@ -488,7 +501,8 @@ namespace KineticCore.Runtime
             AutoOrbitTarget = false;
             PuppetActive = true;
             _resetHoldTimer = 0.8f;
-            StatusMessage = "RESET POSE -> Calibrated to Desk & Home [0.25, 0.45, -0.65] rad";
+            ResetPayloadHousingAndEnvelope();
+            StatusMessage = "RESET POSE -> Calibrated Desk, Restored Housing Block & Home [0.25, 0.45, -0.65] rad";
             WriteDiagnosticState("ResetPose");
         }
 
@@ -497,6 +511,7 @@ namespace KineticCore.Runtime
         {
             _stepSynthDone = true;
             _topologyVariantIndex = (_topologyVariantIndex + 1) % 4;
+            ResetPayloadHousingAndEnvelope();
             // If user is actively measuring an object with both hands in VR, use their live CaliperWidthMm;
             // otherwise cycle through distinct preset sizes so clicking Fast Synth shows a dramatic geometry change!
             var caliper = GetComponent<CaliperController>();
@@ -529,7 +544,16 @@ namespace KineticCore.Runtime
         [Preserve]
         public void ToggleEnvelopeRecording()
         {
-            RecordEnvelopeActive = !RecordEnvelopeActive;
+            if (IsHousingCarved && !RecordEnvelopeActive)
+            {
+                // Re-enabling recording after a carve restores the housing lattice for a fresh sweep
+                ResetPayloadHousingAndEnvelope();
+                RecordEnvelopeActive = true;
+            }
+            else
+            {
+                RecordEnvelopeActive = !RecordEnvelopeActive;
+            }
             SpatialTactileAudio.Instance?.PlayPokeClick();
             StatusMessage = RecordEnvelopeActive
                 ? $"RECORD ENVELOPE [ON] -> Puppet arm to sweep W_i ({SweptSampleCount} capsules)"
@@ -538,50 +562,83 @@ namespace KineticCore.Runtime
         }
 
         [Preserve]
+        public void ResetPayloadHousingAndEnvelope()
+        {
+            if (_housingVoxelTransforms == null) return;
+            IsHousingCarved = false;
+            RecordEnvelopeActive = true;
+            CarvedVoxelCount = 0;
+            ClashedVoxelCount = 0;
+            SweptSampleCount = 0;
+            _sweptWriteIdx = 0;
+
+            for (int v = 0; v < TotalHousingVoxels; v++)
+            {
+                _housingVoxelCarved[v] = false;
+                _housingVoxelClashed[v] = false;
+                if (_housingVoxelTransforms[v] != null)
+                {
+                    _housingVoxelTransforms[v].gameObject.SetActive(true);
+                    _housingVoxelTransforms[v].localScale = VoxelLatticeScale;
+                }
+                if (_housingVoxelRenderers[v] != null)
+                {
+                    SetColorSafe(_housingVoxelRenderers[v], new Color(0.20f, 0.32f, 0.48f));
+                }
+            }
+
+            if (_sweptGhostCapsules != null)
+            {
+                for (int i = 0; i < _sweptGhostCapsules.Length; i++)
+                {
+                    if (_sweptGhostCapsules[i] != null)
+                        _sweptGhostCapsules[i].gameObject.SetActive(false);
+                }
+            }
+
+            if (_housingLabel != null)
+                _housingLabel.text = "AEGIS PAYLOAD HOUSING\n[Sweep W_i -> Thumb-Tap GHOST CARVE]";
+
+            RecomputeControlBarrierMarginHx();
+        }
+
+        [Preserve]
         public void ExecuteGhostCarve()
         {
             if (_housingVoxelTransforms == null) return;
             _stepAuditOrExportDone = true;
 
-            int newlyCarved = 0;
             double rLinkM = (CurrentSpec?.links != null && CurrentSpec.links.Length > 1) ? CurrentSpec.links[1].widthM * 0.5 : 0.013;
-            double rMarginM = 0.008;
-            float carveRadius = (float)(rLinkM + rMarginM) + 0.022f;
+            double rMarginM = 0.010;
+            // Carve every voxel within r_link + r_margin + 9.5mm clearance of the swept envelope W_i & current link segments
+            // so the remaining uncarved housing lattice is guaranteed to have h(x) >= +8.5mm >= 0!
+            float carveThreshold = (float)(rLinkM + rMarginM) + 0.0095f;
+
+            Vector3 shoulderLocal = (_jointPivots != null && _jointPivots.Length > 0) ? _jointPivots[0].localPosition : new Vector3(0f, 0.05f, 0f);
+            Vector3 elbowLocal = (_jointPivots != null && _jointPivots.Length > 0) ? _jointPivots[_jointPivots.Length - 1].localPosition : new Vector3(0.08f, 0.06f, 0f);
+            Vector3 eeLocal = (_eeMarker != null && DeskWorkspaceOrigin != null)
+                ? DeskWorkspaceOrigin.InverseTransformPoint(_eeMarker.position)
+                : new Vector3(0.18f, 0.06f, 0f);
+
+            int activeSamples = Mathf.Min(SweptSampleCount, MaxSweptGhostCapsules);
+            int newlyCarved = 0;
 
             for (int v = 0; v < TotalHousingVoxels; v++)
             {
                 if (_housingVoxelCarved[v]) continue;
-                bool shouldCarve = _housingVoxelClashed[v];
+                Vector3 vPos = _housingVoxelLocalCenters[v];
 
-                if (!shouldCarve)
+                float minDist = Mathf.Min(
+                    DistancePointToSegment(vPos, shoulderLocal, elbowLocal),
+                    DistancePointToSegment(vPos, elbowLocal, eeLocal));
+
+                for (int s = 0; s < activeSamples; s++)
                 {
-                    Vector3 vPos = _housingVoxelLocalCenters[v];
-                    // Also check distance to all recorded swept capsules W_i and current link pivots
-                    int activeSamples = Mathf.Min(SweptSampleCount, MaxSweptGhostCapsules);
-                    for (int s = 0; s < activeSamples; s++)
-                    {
-                        if (Vector3.Distance(vPos, _sweptCapsuleCenters[s]) < carveRadius)
-                        {
-                            shouldCarve = true;
-                            break;
-                        }
-                    }
-                    if (!shouldCarve && _jointPivots != null && _eeMarker != null)
-                    {
-                        Vector3 eeLocal = DeskWorkspaceOrigin.InverseTransformPoint(_eeMarker.position);
-                        Vector3 elbowLocal = _jointPivots.Length > 0 ? _jointPivots[_jointPivots.Length - 1].localPosition : Vector3.zero;
-                        Vector3 midLink = (elbowLocal + eeLocal) * 0.5f;
-                        if (Vector3.Distance(vPos, eeLocal) < carveRadius ||
-                            Vector3.Distance(vPos, elbowLocal) < carveRadius ||
-                            Vector3.Distance(vPos, midLink) < carveRadius ||
-                            (Mathf.Abs(vPos.z) < 0.032f && vPos.y > 0.038f))
-                        {
-                            shouldCarve = true;
-                        }
-                    }
+                    float dSeg = DistancePointToSegment(vPos, _sweptSegmentStarts[s], _sweptSegmentEnds[s]);
+                    if (dSeg < minDist) minDist = dSeg;
                 }
 
-                if (shouldCarve)
+                if (_housingVoxelClashed[v] || minDist < carveThreshold)
                 {
                     _housingVoxelCarved[v] = true;
                     _housingVoxelClashed[v] = false;
@@ -593,12 +650,24 @@ namespace KineticCore.Runtime
 
             CarvedVoxelCount += newlyCarved;
             IsHousingCarved = true;
+            CareerHousingsCarved++;
+            PlayerPrefs.SetInt("KineticCAD_TotalCarves", CareerHousingsCarved);
+            PlayerPrefs.Save();
+
+            // Color the recorded swept ghost capsules bright emerald-cyan to show verified zero-clash clearance
+            if (_sweptGhostRenderers != null)
+            {
+                for (int i = 0; i < activeSamples; i++)
+                {
+                    if (_sweptGhostRenderers[i] != null)
+                        SetColorSafe(_sweptGhostRenderers[i], new Color(0.15f, 0.95f, 0.72f));
+                }
+            }
+
             RecomputeControlBarrierMarginHx();
-            if (CurrentBarrierHxMm < 6.5)
-                CurrentBarrierHxMm = 8.5;
 
             if (_housingLabel != null)
-                _housingLabel.text = $"AEGIS PAYLOAD HOUSING\n[GHOST CARVED: -{CarvedVoxelCount} vox | h(x)=+{CurrentBarrierHxMm:F1}mm >= 0 ✓]";
+                _housingLabel.text = $"AEGIS PAYLOAD HOUSING\n[✓ CARVED: -{CarvedVoxelCount} vox | h(x)=+{CurrentBarrierHxMm:F1}mm >= 0 SAFE]";
 
             SpatialTactileAudio.Instance?.PlayCaliperLock();
             ExportCurrentUrdf();
@@ -700,7 +769,7 @@ namespace KineticCore.Runtime
 
         private void CreatePayloadHousingAndSweptEnvelope()
         {
-            // 1. Spawn the AEGIS Drone Payload Bay Mounting Housing Block (72 voxel sub-blocks for real-time Boolean Ghost Carving)
+            // 1. Spawn the AEGIS Drone Payload Bay Mounting Housing Block (72 open-frame lattice voxels for real-time Boolean Ghost Carving)
             _housingVoxelTransforms = new Transform[TotalHousingVoxels];
             _housingVoxelRenderers = new Renderer[TotalHousingVoxels];
             _housingVoxelLocalCenters = new Vector3[TotalHousingVoxels];
@@ -713,8 +782,7 @@ namespace KineticCore.Runtime
             housingRoot.transform.localRotation = Quaternion.identity;
 
             Vector3 blockCenter = new Vector3(0.115f, 0.052f, 0.0f);
-            Vector3 voxelStep = new Vector3(0.018f, 0.018f, 0.020f);
-            Vector3 voxelSize = new Vector3(0.0165f, 0.0165f, 0.0185f);
+            Vector3 voxelStep = new Vector3(0.019f, 0.019f, 0.021f);
 
             int idx = 0;
             for (int ix = 0; ix < HousingGridX; ix++)
@@ -733,10 +801,10 @@ namespace KineticCore.Runtime
                         Destroy(vox.GetComponent<Collider>());
                         vox.transform.SetParent(housingRoot.transform, false);
                         vox.transform.localPosition = localPos;
-                        vox.transform.localScale = voxelSize;
+                        vox.transform.localScale = VoxelLatticeScale;
 
                         Renderer r = vox.GetComponent<Renderer>();
-                        SetColorSafe(r, new Color(0.20f, 0.30f, 0.44f));
+                        SetColorSafe(r, new Color(0.20f, 0.32f, 0.48f));
 
                         _housingVoxelTransforms[idx] = vox.transform;
                         _housingVoxelRenderers[idx] = r;
@@ -748,14 +816,16 @@ namespace KineticCore.Runtime
 
             _housingLabel = WorldTextFactory.Create(
                 "AEGIS_Housing_Label", DeskWorkspaceOrigin,
-                blockCenter + new Vector3(0f, 0.046f, 0f), Quaternion.Euler(25f, 0f, 0f),
+                blockCenter + new Vector3(0f, 0.048f, 0f), Quaternion.Euler(25f, 0f, 0f),
                 0.00135f, 30, new Color(0.95f, 0.55f, 0.90f),
-                "AEGIS PAYLOAD HOUSING\n[Sweep W_i -> Poke GHOST CARVE]");
+                "AEGIS PAYLOAD HOUSING\n[Sweep W_i -> Thumb-Tap GHOST CARVE]");
 
             // 2. Pre-allocate 24 Swept-Volume Ghost Capsules (W_i)
             _sweptGhostCapsules = new Transform[MaxSweptGhostCapsules];
             _sweptGhostRenderers = new Renderer[MaxSweptGhostCapsules];
             _sweptCapsuleCenters = new Vector3[MaxSweptGhostCapsules];
+            _sweptSegmentStarts = new Vector3[MaxSweptGhostCapsules];
+            _sweptSegmentEnds = new Vector3[MaxSweptGhostCapsules];
             _sweptCapsuleRadii = new float[MaxSweptGhostCapsules];
 
             GameObject ghostRoot = new GameObject("SweptVolume_GhostEnvelope_Wi");
@@ -777,6 +847,15 @@ namespace KineticCore.Runtime
             }
         }
 
+        private static float DistancePointToSegment(Vector3 p, Vector3 a, Vector3 b)
+        {
+            Vector3 ab = b - a;
+            float lenSq = ab.sqrMagnitude;
+            if (lenSq < 1e-8f) return Vector3.Distance(p, a);
+            float t = Mathf.Clamp01(Vector3.Dot(p - a, ab) / lenSq);
+            return Vector3.Distance(p, a + t * ab);
+        }
+
         private void UpdateSweptVolumeAndCbf()
         {
             if (_theta == null || _theta.Length < 3 || _eeMarker == null || DeskWorkspaceOrigin == null) return;
@@ -790,6 +869,9 @@ namespace KineticCore.Runtime
             }
 
             Vector3 eeLocal = DeskWorkspaceOrigin.InverseTransformPoint(_eeMarker.position);
+            Vector3 shoulderLocal = (_jointPivots != null && _jointPivots.Length > 0)
+                ? _jointPivots[0].localPosition
+                : new Vector3(0f, 0.05f, 0f);
             Vector3 elbowLocal = (_jointPivots != null && _jointPivots.Length > 0)
                 ? _jointPivots[_jointPivots.Length - 1].localPosition
                 : new Vector3(0.08f, 0.06f, 0f);
@@ -804,41 +886,54 @@ namespace KineticCore.Runtime
                 SweptSampleCount = Mathf.Min(SweptSampleCount + 1, 999);
 
                 _sweptCapsuleCenters[slot] = midForearm;
+                _sweptSegmentStarts[slot] = elbowLocal;
+                _sweptSegmentEnds[slot] = eeLocal;
                 _sweptCapsuleRadii[slot] = 0.018f;
                 if (_sweptGhostCapsules != null && _sweptGhostCapsules[slot] != null)
                 {
                     _sweptGhostCapsules[slot].gameObject.SetActive(true);
                     _sweptGhostCapsules[slot].localPosition = midForearm;
-                    _sweptGhostCapsules[slot].localScale = new Vector3(0.032f, 0.022f, 0.022f);
+                    Vector3 segDir = eeLocal - elbowLocal;
+                    if (segDir.sqrMagnitude > 0.0001f)
+                        _sweptGhostCapsules[slot].localRotation = Quaternion.LookRotation(segDir.normalized, Vector3.up);
+                    _sweptGhostCapsules[slot].localScale = new Vector3(0.020f, 0.020f, Mathf.Clamp(segDir.magnitude * 0.65f, 0.024f, 0.065f));
                     SetColorSafe(_sweptGhostRenderers[slot], IsHousingCarved
-                        ? new Color(0.15f, 0.90f, 0.75f)
+                        ? new Color(0.15f, 0.95f, 0.72f)
                         : new Color(0.90f, 0.25f, 0.85f));
                 }
             }
 
-            RecomputeControlBarrierMarginHx(midForearm, eeLocal, elbowLocal);
+            RecomputeControlBarrierMarginHx(shoulderLocal, elbowLocal, eeLocal);
         }
 
-        private void RecomputeControlBarrierMarginHx(Vector3? midForearmOpt = null, Vector3? eeLocalOpt = null, Vector3? elbowLocalOpt = null)
+        private void RecomputeControlBarrierMarginHx(Vector3? shoulderLocalOpt = null, Vector3? elbowLocalOpt = null, Vector3? eeLocalOpt = null)
         {
             if (_housingVoxelTransforms == null) return;
 
-            Vector3 eeLocal = eeLocalOpt ?? (_eeMarker != null ? DeskWorkspaceOrigin.InverseTransformPoint(_eeMarker.position) : new Vector3(0.18f, 0.06f, 0f));
+            Vector3 shoulderLocal = shoulderLocalOpt ?? ((_jointPivots != null && _jointPivots.Length > 0) ? _jointPivots[0].localPosition : new Vector3(0f, 0.05f, 0f));
             Vector3 elbowLocal = elbowLocalOpt ?? ((_jointPivots != null && _jointPivots.Length > 0) ? _jointPivots[_jointPivots.Length - 1].localPosition : new Vector3(0.08f, 0.06f, 0f));
-            Vector3 midForearm = midForearmOpt ?? ((elbowLocal + eeLocal) * 0.5f);
+            Vector3 eeLocal = eeLocalOpt ?? (_eeMarker != null && DeskWorkspaceOrigin != null ? DeskWorkspaceOrigin.InverseTransformPoint(_eeMarker.position) : new Vector3(0.18f, 0.06f, 0f));
 
-            float rSafety = 0.023f; // r_link (13mm) + r_margin (10mm)
-            float minHxMeters = 0.085f;
+            double rLinkM = (CurrentSpec?.links != null && CurrentSpec.links.Length > 1) ? CurrentSpec.links[1].widthM * 0.5 : 0.013;
+            float rSafety = (float)rLinkM + 0.010f; // r_link + 10mm safety margin
+            float minHxMeters = 0.095f;
+            int activeSamples = Mathf.Min(SweptSampleCount, MaxSweptGhostCapsules);
+            int clashCount = 0;
 
             for (int v = 0; v < TotalHousingVoxels; v++)
             {
                 if (_housingVoxelCarved[v]) continue;
 
                 Vector3 vPos = _housingVoxelLocalCenters[v];
-                float d1 = Vector3.Distance(vPos, midForearm) - rSafety;
-                float d2 = Vector3.Distance(vPos, eeLocal) - rSafety;
-                float d3 = Vector3.Distance(vPos, elbowLocal) - rSafety;
-                float dMin = Mathf.Min(d1, Mathf.Min(d2, d3));
+                float dUpper = DistancePointToSegment(vPos, shoulderLocal, elbowLocal) - rSafety;
+                float dFore = DistancePointToSegment(vPos, elbowLocal, eeLocal) - rSafety;
+                float dMin = Mathf.Min(dUpper, dFore);
+
+                for (int s = 0; s < activeSamples; s++)
+                {
+                    float dSwept = DistancePointToSegment(vPos, _sweptSegmentStarts[s], _sweptSegmentEnds[s]) - rSafety;
+                    if (dSwept < dMin) dMin = dSwept;
+                }
 
                 if (dMin < minHxMeters)
                     minHxMeters = dMin;
@@ -846,12 +941,47 @@ namespace KineticCore.Runtime
                 if (dMin < 0f && !_housingVoxelClashed[v])
                 {
                     _housingVoxelClashed[v] = true;
+                    if (_housingVoxelTransforms[v] != null)
+                        _housingVoxelTransforms[v].localScale = VoxelClashScale;
                     if (_housingVoxelRenderers[v] != null)
-                        SetColorSafe(_housingVoxelRenderers[v], new Color(1.0f, 0.20f, 0.45f));
+                        SetColorSafe(_housingVoxelRenderers[v], new Color(1.0f, 0.18f, 0.50f));
                 }
+
+                if (_housingVoxelClashed[v])
+                    clashCount++;
             }
 
-            CurrentBarrierHxMm = IsHousingCarved ? System.Math.Max(6.5, minHxMeters * 1000.0) : (minHxMeters * 1000.0);
+            ClashedVoxelCount = clashCount;
+            CurrentBarrierHxMm = minHxMeters * 1000.0;
+
+            if (!IsHousingCarved && _housingLabel != null)
+            {
+                _housingLabel.text = clashCount > 0
+                    ? $"AEGIS PAYLOAD HOUSING\n[■ {clashCount} VOX CLASH (h={CurrentBarrierHxMm:F1}mm) -> GHOST CARVE]"
+                    : "AEGIS PAYLOAD HOUSING\n[Sweep W_i -> Thumb-Tap GHOST CARVE]";
+            }
+
+            // Update Autonomous AEGIS Physical AI Co-Pilot Recommendation
+            if (!IsHousingCarved && clashCount > 0)
+            {
+                AgentRecommendation = $"AGENTIC CO-PILOT: ⚠ {clashCount} housing voxels clash (h={CurrentBarrierHxMm:F1}mm < 0) -> Thumb-Tap or Poke [GHOST CARVE]";
+            }
+            else if (!IsHousingCarved && SweptSampleCount < 4)
+            {
+                AgentRecommendation = $"AGENTIC CO-PILOT: Sweep arm through bay to map W_i envelope ({SweptSampleCount}/4 capsules)";
+            }
+            else if (CurrentManipulability < ReferenceManipulability * 0.42)
+            {
+                AgentRecommendation = "AGENTIC CO-PILOT: ⚠ Near singularity [▼ LOW μ] -> Retract elbow or Thumb-Swipe Fwd to switch topology";
+            }
+            else if (_isHoldingWorkpiece)
+            {
+                AgentRecommendation = $"AGENTIC CO-PILOT: Payload grasped ({ManualTestWidthMm:F0}mm) -> Guide along cyan arc to Drop Zone";
+            }
+            else
+            {
+                AgentRecommendation = $"AGENTIC CO-PILOT: ✓ CBF Safe (h=+{CurrentBarrierHxMm:F1}mm >= 0) | [▲ OPTIMAL μ] -> Ready for Pick-and-Place or URDF Export";
+            }
         }
 
         private void CreateObjectiveBeacon()
@@ -1250,30 +1380,34 @@ namespace KineticCore.Runtime
                 }
             }
 
-            GUI.Box(new Rect(12, 12, 515, 228), "");
-            GUILayout.BeginArea(new Rect(20, 18, 498, 216));
-            GUILayout.Label($"<b>KINETIC-CAD XR | NVIDIA NEMOTRON x NEBIUS PHYSICAL AI</b>  ({ManualTestWidthMm:F0} mm)");
-            GUILayout.Label($"Engine: {ActiveNebiusModel} ({LastApiLatencyMs} ms) | {(LastSpecFromAi ? "<color=#20FF60>[AI Spec ✓]</color>" : "<color=#FFB020>[Parametric Fallback]</color>")} | μ = {CurrentManipulability:E2}");
-            GUILayout.Label($"Audit: {EngineeringAuditReport}");
+            GUI.Box(new Rect(12, 12, 520, 248), "");
+            GUILayout.BeginArea(new Rect(20, 18, 504, 236));
+            GUILayout.Label($"<b>KINETIC-CAD XR | AEGIS PAYLOAD & SPATIAL ROBOTICS STUDIO</b>  ({ManualTestWidthMm:F0} mm)");
+            GUILayout.Label($"Engine: {ActiveNebiusModel} ({LastApiLatencyMs} ms) | {(LastSpecFromAi ? "<color=#20FF60>[AI Spec ✓]</color>" : "<color=#FFB020>[PoE Parametric]</color>")} | μ={CurrentManipulability:E2} | h(x)={CurrentBarrierHxMm:F1}mm");
+            GUILayout.Label($"{AgentRecommendation}");
             GUILayout.Label($"Status: {StatusMessage}");
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"Caliper: {ManualTestWidthMm:F0}mm", GUILayout.Width(100));
-            double newWidth = GUILayout.HorizontalSlider((float)ManualTestWidthMm, 20f, 250f, GUILayout.Width(210));
+            GUILayout.Label($"Caliper: {ManualTestWidthMm:F0}mm", GUILayout.Width(95));
+            if (GUILayout.Button("-5mm [[]", GUILayout.Width(64))) ScrubDimensionMm(-5.0);
+            double newWidth = GUILayout.HorizontalSlider((float)ManualTestWidthMm, 20f, 250f, GUILayout.Width(160));
             if (System.Math.Abs(newWidth - ManualTestWidthMm) > 0.5)
             {
                 ManualTestWidthMm = newWidth;
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
             }
+            if (GUILayout.Button("+5mm []]", GUILayout.Width(64))) ScrubDimensionMm(+5.0);
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Fast Synth [G]")) SynthesizeFast();
-            if (GUILayout.Button("Deep Audit [H]")) SynthesizeDeep();
+            if (GUILayout.Button(RecordEnvelopeActive ? "Rec W_i: ON [V]" : "Rec W_i: OFF [V]")) ToggleEnvelopeRecording();
+            if (GUILayout.Button("Ghost Carve [C]")) ExecuteGhostCarve();
             if (GUILayout.Button("Export URDF [U]")) ExportUrdf();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Deep Audit [H]")) SynthesizeDeep();
             if (GUILayout.Button(PuppetActive ? "Puppet: ON [P]" : "Puppet: OFF [P]")) TogglePuppet();
             if (GUILayout.Button(AutoOrbitTarget ? "Orbit: ON [O]" : "Orbit: OFF [O]")) ToggleAutoOrbit();
             if (GUILayout.Button("Reset [R]")) ResetPose();
@@ -1292,15 +1426,18 @@ namespace KineticCore.Runtime
             string s1 = _stepSynthDone ? "✓" : "1";
             string s2 = (SweptSampleCount >= 4 || _stepPuppetDone) ? "✓" : "2";
             string s3 = (IsHousingCarved || _stepAuditOrExportDone) ? "✓" : "3";
+
+            double muRatio = ReferenceManipulability > 1e-6 ? (CurrentManipulability / ReferenceManipulability) : 1.0;
+            string muSymbol = muRatio > 0.65 ? "[▲ OPTIMAL]" : (muRatio > 0.38 ? "[◆ CAUTION]" : "[▼ SINGULARITY]");
             string cbfStatus = CurrentBarrierHxMm >= 0.0
-                ? $"h(x)=+{CurrentBarrierHxMm:F1}mm >= 0 [CBF SAFE ✓]"
-                : $"h(x)={CurrentBarrierHxMm:F1}mm < 0 [CLASH -> GHOST CARVE!]";
+                ? $"h(x)=+{CurrentBarrierHxMm:F1}mm >= 0 [✓ CBF SAFE]"
+                : $"h(x)={CurrentBarrierHxMm:F1}mm < 0 [■ {ClashedVoxelCount} VOX CLASH]";
 
             _vrHologramText.text =
                 $"KINETIC-CAD XR | AEGIS PAYLOAD & SPATIAL ROBOTICS STUDIO ({ManualTestWidthMm:F0}mm)\n" +
                 $"[{s1}]Step1: Caliper/Thumb-Swipe(±5mm)  [{s2}]Step2: Sweep W_i({SweptSampleCount})  [{s3}]Step3: Ghost Carve & CBF\n" +
-                $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | μ={CurrentManipulability:E2} | {cbfStatus}\n" +
-                $"Audit: {EngineeringAuditReport}\n" +
+                $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | μ={CurrentManipulability:E2} {muSymbol} | {cbfStatus}\n" +
+                $"{AgentRecommendation}\n" +
                 $"{StatusMessage}";
 
             if (_urdfInspectorText != null && CurrentSpec != null)
@@ -1313,14 +1450,12 @@ namespace KineticCore.Runtime
                 }
 
                 string rName = CurrentSpec.robotName ?? "kinetic_claw";
-                double l1 = (CurrentSpec.links != null && CurrentSpec.links.Length > 1) ? CurrentSpec.links[1].lengthM : 0.14;
-                double l2 = (CurrentSpec.links != null && CurrentSpec.links.Length > 2) ? CurrentSpec.links[2].lengthM : 0.11;
                 _urdfInspectorText.text =
                     $"=== ROS 2 URDF + AEGIS CBF INSPECTOR ===\n" +
                     $"<robot name=\"{rName}\"> | {rName}_cbf_envelope.json\n" +
                     $"  Swept W_i: {SweptSampleCount} capsules | Carved: -{CarvedVoxelCount} vox | {cbfStatus}\n" +
                     $"  UDP :9870 -> {{\"q\":[{_theta[0]:F2},{_theta[1]:F2},{_theta[2]:F2}],\"mu\":{CurrentManipulability:F4}}}\n" +
-                    $"  Challenge: {ChallengeTitles[Mathf.Clamp(CurrentChallengeLevel - 1, 0, ChallengeTitles.Length - 1)]} ({CompletedGraspCount} placed | {LastDeliveryStarRating})";
+                    $"  {ChallengeTitles[Mathf.Clamp(CurrentChallengeLevel - 1, 0, ChallengeTitles.Length - 1)]} ({LastDeliveryStarRating}) | Career: {CareerDeliveries} Placed, {CareerHousingsCarved} Carved";
             }
 
             if (_specSheetText != null && CurrentSpec != null)
@@ -1343,11 +1478,11 @@ namespace KineticCore.Runtime
                 string topoLabel = topoNames[((_topologyVariantIndex % 4) + 4) % 4];
 
                 _specSheetText.text =
-                    $"=== PoE SCREW & MICROGESTURE SHEET ===\n" +
+                    $"=== PoE SCREW & ACCESSIBILITY SHEET ===\n" +
                     $"Topology: {topoLabel} ({specTag})\n" +
-                    $"Reach={(l1 + l2) * 1000:F0}mm | Mass={mTotal:F2}kg | Peak τ={tauPeak:F2}Nm\n" +
+                    $"Reach={(l1 + l2) * 1000:F0}mm | Mass={mTotal:F2}kg | Peak τ={tauPeak:F2}Nm | {muSymbol}\n" +
                     $"CBF Barrier: h(x) = min ||p_obs - p_k|| - (r_l + r_m) = {CurrentBarrierHxMm:F1}mm\n" +
-                    $"Microgestures: Swipe L/R (±5mm) | Fwd (Synth) | Tap (Ghost Carve)";
+                    $"Seated Lap Mode: Gaze+Pinch (260ms) | Thumb-Swipe (±5mm) | Thumb-Tap (Carve)";
             }
         }
 
@@ -1463,6 +1598,9 @@ namespace KineticCore.Runtime
                     catch { }
                 }
                 _exportFlashTimer = 0.8f; // Flash robot links bright emerald green to confirm URDF + CBF + STL export!
+                CareerUrdfExports++;
+                PlayerPrefs.SetInt("KineticCAD_TotalExports", CareerUrdfExports);
+                PlayerPrefs.Save();
                 SpatialTactileAudio.Instance?.PlayExportSuccess();
                 StatusMessage = $"EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} + {Path.GetFileName(cbfPath)} + {Path.GetFileName(stlPath)}";
                 Debug.Log($"[KineticCAD] Exported URDF: {LastExportedUrdfPath} | CBF: {cbfPath} | STL: {stlPath}");
@@ -1729,6 +1867,9 @@ namespace KineticCore.Runtime
                     _graspCooldownTimer = 1.4f;
                     _dropZoneFlashTimer = 0.9f;
                     CompletedGraspCount++;
+                    CareerDeliveries++;
+                    PlayerPrefs.SetInt("KineticCAD_TotalDeliveries", CareerDeliveries);
+                    PlayerPrefs.Save();
                     double normHealth = ReferenceManipulability > 1e-6 ? (_minManipulabilityDuringCarry / ReferenceManipulability) : 0.8;
                     LastDeliveryStarRating = normHealth > 0.65 ? "★★★" : (normHealth > 0.35 ? "★★☆" : "★☆☆");
                     int nextLevelIdx = CompletedGraspCount % ChallengeTitles.Length;
@@ -1740,6 +1881,7 @@ namespace KineticCore.Runtime
                     int[] levelTopologies = { 0, 1, 3, 2, 0 };
                     ManualTestWidthMm = levelWidths[nextLevelIdx];
                     _topologyVariantIndex = levelTopologies[nextLevelIdx];
+                    ResetPayloadHousingAndEnvelope();
                     SynthesizeAndSpawnSync(ManualTestWidthMm);
 
                     UpdateReachEnvelopeAndStationPositions(_lastReachMeters);
