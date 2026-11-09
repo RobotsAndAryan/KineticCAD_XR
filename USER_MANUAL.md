@@ -25,11 +25,14 @@ You have **three main interactive zones** on your desk:
 | What You Want To Do | How To Do It With Your Bare Hands | Visual & Audio Feedback |
 | :--- | :--- | :--- |
 | **1. Calibrate Desk to Your Physical Tabletop** | Rest your **Left Hand flat on your real desk** and poke **`[CALIBRATE DESK]`** (far-right red button on the front bar). | The virtual workbench snaps to the exact height ($Y$) and orientation of your physical desk. |
-| **2. Measure & Capture a Real-World 3D Object ($W \times D \times H$)** | Point **both Index Fingers** (curling Middle, Ring, and Pinky fingers) on either side of a real object on your desk (e.g., motor, phone, battery). Hold steady for **1.0 second**. | Cyan caliper line bridges your fingertips, ticks every millimeter, chimes on lock, and spawns a **1:1 3D CAD Twin** ($W \times D \times H\text{ mm}$) + matching gripper jaw span. |
-| **3. Puppet the Robot Arm (90 Hz DLS IK)** | Point **only your Right Index Finger** in the air above the desk (`z > -9.5 cm`) and move your finger smoothly. | A cyan reticle ring appears on your fingertip; the red IK target sphere follows your finger and the robot arm tracks you in real time. |
-| **4. Snap Modular Joints & Links Together ($3 \to 6\text{ DoF}$)** | Point your **Left Index Finger** and touch the glowing **Gold Coaxial Snap Ring** at the robot's tip (within `3.2 cm`), **OR** poke **`[+SNAP MODULE]`** on the front bar. | Magnetically snaps: **1st snap** = `+Prismatic Slider (4-DoF)` $\rightarrow$ **2nd snap** = `+Revolute Pitch Wrist (5-DoF)` $\rightarrow$ **3rd snap** = `+Revolute Roll Flange carrying your 1:1 CAD Part (6-DoF)`! |
-| **5. Hold Your 1:1 3D Print in Your Palm** | Poke **`[HOLD 1:1 IN HAND]`** (4th button on the front bar) and hold out your **Left Hand**. | Your multi-body CAD assembly attaches above your left palm at **true 1:1 millimeter scale** and slowly rotates so you can inspect wall thickness and bosses before 3D printing. |
-| **6. Pick-and-Place Robotics Challenge** | Point your **Right Index Finger** over the **1:1 CAD Part** on the left of the desk to grasp it, then guide the arm along the cyan arc to the **Drop Zone Pad** on the right. | Jaws close automatically on pickup, track your manipulability $\mu(\boldsymbol{\theta})$ during carry, award a `★★★` rating on delivery, and advance through **Levels 1–5**. |
+| **2. Measure & Capture a Real-World 3D Object In-Place ($W \times D \times H$)** | Point **both Index Fingers** (curling Middle, Ring, and Pinky fingers) on either side of a real object on your desk (e.g., motor, phone, battery). Hold steady for **1.0 second**. | Cyan caliper line bridges your fingertips, locks a **1:1 In-Place Passthrough Bounding Frame** right at the midpoint between your fingers over the real object, and updates the **Left Station CAD Solid**. |
+| **3. Direct 3D Face-Pull Extrusion (`+X`, `+Y`, `+Z` Handles)** | Point your **Right Index Finger** (or click-drag with the mouse) on any of the **3 glowing 3D Face-Pull Handles** (`+X W` Coral Red, `+Y H` Emerald Green, `+Z D` Sky Blue) on the CAD Solid and pull outward/inward. | Continuously extrudes Width ($X$), Height ($Y$), or Depth ($Z$) in $1\text{ mm}$ increments with live millimeter ticks, volume ($\text{cm}^3$), mass ($\text{g}$), and slicer print time! |
+| **4. Aim 3D Boolean CSG Cutters/Bosses Before Stamping** | Set Boolean mode to **`CUT`** (or hold a Left-Hand pinch / `Shift` key) and hover your **Right Index Finger** inside the Left Station CAD Solid. | A live **3D Boolean Cursor** tracks your fingertip on a $2\text{ mm}$ CAD grid so you can aim exact bore holes, slots, or bosses before poking **`[+STAMP BODY]`**! |
+| **5. Drag-Carry-and-Snap Modules with Magnetic Tether ($3 \to 6\text{ DoF}$)** | Touch the **Spinning 3D Preview** above your Left-Hand Palette with your **Right Index Finger** and carry it toward the glowing **Gold Coaxial Snap Ring** at the robot's tip (or touch the Gold Ring with your Left Index Finger). | A glowing **6-segment Magnetic Snap Tether** bridges your finger to the snap port; touching the ring appends a new joint & link using your **sculpted CAD part's exact dimensions, shape, and mass ($\text{g}$)**! |
+| **6. Direct Screw-Axis Joint Pin Inspector ($\mathcal{S}_i$ Flip)** | Poke any glowing **Cyan/Gold Joint Pin (`ScrewAxisPin`)** directly on the robot arm with your **Left Index Finger** (or click it with the mouse / press **`[K]`**). | Flips that specific joint's Screw Axis $\mathcal{S}_i$ (`Revolute Pitch Z [0,0,1]` $\rightarrow$ `Revolute Yaw Y [0,1,0]` $\rightarrow$ `Revolute Roll X [1,0,0]` $\rightarrow$ `Prismatic Slider X [1,0,0]`) and immediately recompiles the $SE(3)$ PoE chain! |
+| **7. Puppet the Robot Arm (90 Hz DLS IK)** | Point **only your Right Index Finger** in the air above the desk (`z > -9.5 cm`) and move your finger smoothly. | A cyan reticle ring appears on your fingertip; the red IK target sphere follows your finger and the robot arm tracks you in real time. |
+| **8. Hold Your 1:1 3D Print in Your Palm** | Poke **`[HOLD 1:1 IN HAND]`** (4th button on the front bar) and hold out your **Left Hand**. | Your multi-body CAD assembly attaches above your left palm at **true 1:1 millimeter scale** and slowly rotates so you can inspect wall thickness and bosses before 3D printing. |
+| **9. Pick-and-Place Robotics Challenge** | Point your **Right Index Finger** over the **1:1 CAD Part** on the left of the desk to grasp it, then guide the arm along the cyan arc to the **Drop Zone Pad** on the right. | Jaws close automatically on pickup, track your manipulability $\mu(\boldsymbol{\theta})$ during carry, award a `★★★` rating on delivery, and advance through **Levels 1–5**. |
 
 ---
 
@@ -101,6 +104,10 @@ When running in the Unity Editor without a headset connected, **KineticCAD XR** 
 
 ### Mouse Controls
 * **Left-Click any 3D Button on the Desk or Left-Hand Palette:** Fires that button with full 3D depression and mechanical click audio.
+* **Left-Click & Drag any `+X W` / `+Y H` / `+Z D` 3D Face Handle on the CAD Part:** Continuously extrudes Width, Height, or Depth in $1\text{ mm}$ increments with live volume and mass updates.
+* **Left-Click any Cyan/Gold Joint Pin (`ScrewAxisPin`) on the Robot Arm:** Directly flips that joint's Screw Axis $\mathcal{S}_i$ (`Revolute Pitch Z` $\rightarrow$ `Revolute Yaw Y` $\rightarrow$ `Revolute Roll X` $\rightarrow$ `Prismatic Slider X`) and recompiles the $SE(3)$ PoE chain.
+* **Hold `Shift` + Drag over the CAD Part (or select `BOOLEAN CUT`):** Aims the live **3D Boolean CSG Cursor** on a $2\text{ mm}$ grid inside the CAD part before stamping (`B`).
+* **Left-Click & Drag from the Left-Hand Palette 3D Preview to the Gold Snap Ring:** Carries your custom CAD module along the glowing **Magnetic Snap Tether** and snaps it onto the robot arm.
 * **Left-Click & Drag in the 3D Scene:** Drags the red IK target sphere across the workbench (automatically dipping down over the Pickup Workpiece and Drop Zone for easy pick-and-place!).
 * **Right-Click & Drag:** Orbits the 3D studio camera around the workbench.
 * **Mouse Scroll Wheel:** Zooms the camera in and out.
@@ -109,13 +116,14 @@ When running in the Unity Editor without a headset connected, **KineticCAD XR** 
 | Key | Action | Description |
 | :--- | :--- | :--- |
 | **`T`** or **`1`** | **Cycle Primitive Shape** | `Box/Cube` $\rightarrow$ `Cylinder` $\rightarrow$ `Sphere` $\rightarrow$ `Torus Ring` $\rightarrow$ `Hollow Tube` $\rightarrow$ `L-Bracket` |
-| **`B`** or **`2`** | **+Stamp Multi-Body** | Stamps current primitive into the Multi-Body CAD Tree (up to 7 bodies, then resets) |
+| **`B`** or **`2`** | **+Stamp Multi-Body** | Stamps current primitive (at your aimed 3D Boolean cursor offset!) into the Multi-Body CAD Tree |
 | **`J`** or **`3`** | **Cycle Boolean Mode** | `JOIN (Union)` $\rightarrow$ `CUT (Subtract)` $\rightarrow$ `INTERSECT` |
 | **`L`** or **`4`** | **Cycle Pattern Array** | `1x Single` $\rightarrow$ `3x Linear Array` $\rightarrow$ `6x Circular Radial Array` |
-| **`X`** or **`5`** | **Push/Pull Face Extrude** | Steps through Height/Depth face extrusions and isometric locks |
+| **`X`** or **`5`** | **Push/Pull Face Extrude** | Steps through Height/Depth face extrusions (or drag the 3D `+X/+Y/+Z` handles directly!) |
 | **`F`** | **Cycle CAD Feature Op** | `Solid Extrude` $\rightarrow$ `Shell 2.5mm Hollow` $\rightarrow$ `Chamfer + M4 Bosses` $\rightarrow$ `L-Bracket` |
 | **`M`** | **Cycle Engineering Material** | `PLA+` $\rightarrow$ `PETG-CF` $\rightarrow$ `6061-T6 Al` $\rightarrow$ `Ti-6Al-4V` |
-| **`N`** | **+Snap Modular Joint/Link** | Coaxially snaps $3 \to 4 \to 5 \to 6\text{ DoF}$ joints & links onto the robot arm |
+| **`N`** | **+Snap Modular Joint/Link** | Coaxially snaps $3 \to 4 \to 5 \to 6\text{ DoF}$ joints & links carrying your custom CAD part |
+| **`K`** | **Flip Joint Screw Axis $\mathcal{S}_i$** | Cycles joint Screw Axis (`Revolute Z` $\rightarrow$ `Revolute Y` $\rightarrow$ `Revolute X` $\rightarrow$ `Prismatic X`) |
 | **`I`** | **Hold 1:1 Print in Hand** | Toggles the floating 1:1 physical print preview |
 | **`G`** | **Synthesize Topology** | Cycles robot topology (`3R` / `SCARA` / `Turret` / `Wrist Probe`) & triggers AI synthesis |
 | **`C`** | **Execute Ghost Carve** | Boolean-carves clashing housing voxels along swept path $\mathcal{W}_i$ ($h(\mathbf{x}) \ge 0$) |

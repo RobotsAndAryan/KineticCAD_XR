@@ -91,6 +91,7 @@ namespace KineticCore.Runtime
         private float _gazePinchHoldTimer = 0f;
         private bool _gazePinchTriggeredThisHold = false;
         private bool _draggingTargetWithMouse = false;
+        private int _draggedFacePullAxis = -1;
         private GameObject _fingertipReticle;
         private Renderer _reticleRenderer;
         private Transform _cachedRigOrigin;
@@ -378,11 +379,17 @@ namespace KineticCore.Runtime
                 {
                     if (MechanismController != null && DeskWorkspaceOrigin != null)
                     {
+                        Vector3? palettePreviewPos = (_leftHandPaletteRoot != null)
+                            ? (Vector3?)_leftHandPaletteRoot.TransformPoint(new Vector3(0f, 0.062f, 0.050f))
+                            : null;
+                        bool handledDirectCad = MechanismController.TryHandleDirectSpatialCadManipulation(
+                            rightTipWorld, true, -1, palettePreviewPos, IsEitherHandPinching());
+
                         Vector3 deskLocal = DeskWorkspaceOrigin.InverseTransformPoint(rightTipWorld);
-                        // Gate IK target updates when the fingertip is poking the front button bar (z < -0.095m)
-                        // or poking the Left-Hand Spatial CAD Palette (x < -0.13m)
+                        // Gate IK target updates when the fingertip is poking the front button bar (z < -0.095m),
+                        // poking the Left-Hand Spatial CAD Palette (x < -0.13m), or dragging a 3D CAD face handle / carrying a module!
                         bool overButtonBar = (deskLocal.z < -0.095f && deskLocal.y < 0.085f) || (deskLocal.x < -0.135f && deskLocal.y < 0.14f);
-                        if (!overButtonBar && deskLocal.y > -0.04f)
+                        if (!handledDirectCad && !overButtonBar && deskLocal.y > -0.04f)
                         {
                             MechanismController.AutoOrbitTarget = false;
                             MechanismController.ManualTargetLocalPos = deskLocal;
@@ -392,6 +399,10 @@ namespace KineticCore.Runtime
                     }
 
                     CheckDeskButtonPokes(rightTipWorld);
+                }
+                else
+                {
+                    MechanismController?.TryHandleDirectSpatialCadManipulation(Vector3.zero, false);
                 }
 
                 // Also allow Left Index Fingertip to poke the desk buttons ONLY when left hand is Index-Pointing!
@@ -447,6 +458,7 @@ namespace KineticCore.Runtime
                             _lastPokeTime = Time.time;
                             _lastClickedButtonIdx = i;
                             _draggingTargetWithMouse = false;
+                            _draggedFacePullAxis = -1;
                             SetColorSafe(_buttonRenderers[i], Color.white);
                             Vector3 rs = _buttonRestLocalScales[i];
                             Vector3 rp = _buttonRestLocalPositions[i];
@@ -457,6 +469,36 @@ namespace KineticCore.Runtime
                             return;
                         }
                     }
+
+                    // Check if user clicked one of the 3 Direct Face-Pull Gizmo Handles (+X, +Y, +Z)
+                    if (MechanismController != null && MechanismController.FacePullHandles != null)
+                    {
+                        for (int a = 0; a < MechanismController.FacePullHandles.Length; a++)
+                        {
+                            if (MechanismController.FacePullHandles[a] != null && hit.transform == MechanismController.FacePullHandles[a])
+                            {
+                                _draggedFacePullAxis = a;
+                                _draggingTargetWithMouse = false;
+                                SpatialTactileAudio.Instance?.PlayPokeClick(hit.point);
+                                return;
+                            }
+                        }
+                    }
+
+                    // Check if user clicked any joint's Screw-Axis Pin S_i on the robot arm
+                    if (MechanismController != null && MechanismController.PinTransforms != null)
+                    {
+                        for (int p = 0; p < MechanismController.PinTransforms.Length; p++)
+                        {
+                            if (MechanismController.PinTransforms[p] != null && hit.transform == MechanismController.PinTransforms[p])
+                            {
+                                _draggingTargetWithMouse = false;
+                                _draggedFacePullAxis = -1;
+                                MechanismController.CycleJointScrewAxis(p);
+                                return;
+                            }
+                        }
+                    }
                 }
                 _draggingTargetWithMouse = true;
             }
@@ -464,15 +506,43 @@ namespace KineticCore.Runtime
             if (!KInput.GetMouseButton(0))
             {
                 _draggingTargetWithMouse = false;
+                if (_draggedFacePullAxis >= 0)
+                {
+                    _draggedFacePullAxis = -1;
+                    MechanismController?.TryHandleDirectSpatialCadManipulation(Vector3.zero, false);
+                }
+            }
+
+            if (_draggedFacePullAxis >= 0 && !insideGuiBox && MechanismController != null && DeskWorkspaceOrigin != null)
+            {
+                Ray ray = cam.ScreenPointToRay(mousePos);
+                Vector3 handleWorld = (MechanismController.FacePullHandles != null && MechanismController.FacePullHandles[_draggedFacePullAxis] != null)
+                    ? MechanismController.FacePullHandles[_draggedFacePullAxis].position
+                    : DeskWorkspaceOrigin.TransformPoint(new Vector3(-0.12f, 0.03f, 0.04f));
+                Vector3 planeNormal = (_draggedFacePullAxis == 1) ? -cam.transform.forward : DeskWorkspaceOrigin.up;
+                Plane facePlane = new Plane(planeNormal, handleWorld);
+                if (facePlane.Raycast(ray, out float enterF) && enterF > 0f && enterF < 5f)
+                {
+                    Vector3 worldHit = ray.GetPoint(enterF);
+                    MechanismController.TryHandleDirectSpatialCadManipulation(worldHit, true, _draggedFacePullAxis);
+                }
+                return;
             }
 
             if (_draggingTargetWithMouse && !insideGuiBox && MechanismController != null && DeskWorkspaceOrigin != null)
             {
                 Ray ray = cam.ScreenPointToRay(mousePos);
-                Plane dragPlane = new Plane(DeskWorkspaceOrigin.up, DeskWorkspaceOrigin.TransformPoint(new Vector3(0f, 0.11f, 0f)));
+                Plane dragPlane = new Plane(DeskWorkspaceOrigin.up, DeskWorkspaceOrigin.TransformPoint(new Vector3(0f, 0.045f, 0f)));
                 if (dragPlane.Raycast(ray, out float enter) && enter > 0f && enter < 5f)
                 {
                     Vector3 worldHit = ray.GetPoint(enter);
+                    bool shiftHeld = KInput.GetKey(KeyCode.LeftShift) || KInput.GetKey(KeyCode.RightShift);
+                    Vector3? palettePreviewPos = (_leftHandPaletteRoot != null)
+                        ? (Vector3?)_leftHandPaletteRoot.TransformPoint(new Vector3(0f, 0.062f, 0.050f))
+                        : null;
+                    if (MechanismController.TryHandleDirectSpatialCadManipulation(worldHit, true, -1, palettePreviewPos, shiftHeld))
+                        return;
+
                     Vector3 localHit = DeskWorkspaceOrigin.InverseTransformPoint(worldHit);
                     localHit.x = Mathf.Clamp(localHit.x, -0.18f, 0.38f);
                     localHit.z = Mathf.Clamp(localHit.z, -0.14f, 0.22f);

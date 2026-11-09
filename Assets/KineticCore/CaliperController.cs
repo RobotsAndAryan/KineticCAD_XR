@@ -188,7 +188,7 @@ public class CaliperController : MonoBehaviour
                 }
 
                 UpdateCaliperVisualBar(leftWorld, rightWorld, CaliperWidthMm, IsStable);
-                PushCaliperToControllerIfStable();
+                PushCaliperToControllerIfStable((leftWorld + rightWorld) * 0.5f);
                 return;
             }
         }
@@ -308,7 +308,7 @@ public class CaliperController : MonoBehaviour
     }
 
     [Preserve]
-    protected void PushCaliperToControllerIfStable()
+    protected void PushCaliperToControllerIfStable(Vector3? inPlaceMidpointWorld = null)
     {
         if (MechanismController == null)
             MechanismController = FindAnyObjectByType<KineticMechanismController>();
@@ -338,7 +338,10 @@ public class CaliperController : MonoBehaviour
                 _lastAutoSynthTime = Time.unscaledTime;
             }
 
-            MechanismController.SetCapturedObjectDimensionsMm(CaliperWidthMm, CaliperDepthMm, CaliperHeightMm, triggerSynthesisNow: shouldTriggerSynth);
+            MechanismController.SetCapturedObjectDimensionsMm(
+                CaliperWidthMm, CaliperDepthMm, CaliperHeightMm,
+                triggerSynthesisNow: shouldTriggerSynth,
+                inPlaceMidpointWorld: inPlaceMidpointWorld);
         }
 
         _wasStableLastFrame = IsStable;

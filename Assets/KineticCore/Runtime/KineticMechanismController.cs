@@ -176,6 +176,48 @@ namespace KineticCore.Runtime
         private Transform _distalSnapPortRing;
         private HandFingertipReader _cachedTipReader;
 
+        // Upgrade 1: In-Place Passthrough Caliper Bounding Twin & Direct 3D Face-Pull Gizmo Handles (+X, +Y, +Z)
+        private GameObject _inPlaceTwinRoot;
+        private readonly Transform[] _inPlaceTwinEdges = new Transform[12];
+        private readonly Renderer[] _inPlaceTwinEdgeRenderers = new Renderer[12];
+        private TextMesh _inPlaceTwinLabel;
+        private Vector3 _inPlaceTwinLocalCenter = new Vector3(-0.02f, 0.021f, -0.045f);
+        private bool _hasInPlaceTwinCapture = false;
+        private readonly Transform[] _facePullHandles = new Transform[3];
+        private readonly Renderer[] _facePullRenderers = new Renderer[3];
+        private readonly Color[] _facePullBaseColors =
+        {
+            new Color(1.0f, 0.32f, 0.22f), // +X Width Handle (Coral Red)
+            new Color(0.20f, 0.95f, 0.45f), // +Y Height Handle (Emerald Green)
+            new Color(0.18f, 0.78f, 1.0f)   // +Z Depth Handle (Sky Blue)
+        };
+        public Transform[] FacePullHandles => _facePullHandles;
+        private int _activeFacePullAxis = -1;
+        private int _lastFacePullTickBucket = -1;
+
+        // Upgrade 2: Interactive 3D Boolean CSG Positioning Cursor (2mm CAD grid snapping before stamping)
+        private GameObject _liveBooleanCursorObj;
+        private Renderer _liveBooleanCursorRenderer;
+        private bool _hasAimedBooleanCursor = false;
+        private Vector3 _aimedBooleanOffsetMm = Vector3.zero;
+        private float _booleanCursorActiveTimer = 0f;
+
+        // Upgrade 3: True Drag-Carry-and-Snap Module Carrier & Magnetic Snap Tether
+        private GameObject _dragCarryGhostObj;
+        private Renderer _dragCarryGhostRenderer;
+        private readonly Transform[] _magneticTetherSegments = new Transform[6];
+        private readonly Renderer[] _magneticTetherRenderers = new Renderer[6];
+        private bool _isCarryingSnapModule = false;
+        private float _carrySnapCooldown = 0f;
+        private readonly List<StampedCadBodySpec> _snappedModuleCustomSpecs = new List<StampedCadBodySpec>();
+
+        // Upgrade 4: Direct Screw-Axis Joint Pin Touch Inspector (S_i Axis & Revolute/Prismatic Flipper)
+        private Transform[] _pinTransforms;
+        public Transform[] PinTransforms => _pinTransforms;
+        private readonly int[] _jointAxisOverrides = new int[8];
+        private int _lastInspectedJointIdx = -1;
+        private float _pinPokeCooldown = 0f;
+
         // Swept-Volume CSG "Ghost Carving" (W_i) & Control Barrier Function (h(x) >= 0) state
         public bool RecordEnvelopeActive { get; private set; } = true;
         public bool IsHousingCarved { get; private set; } = false;
@@ -776,11 +818,23 @@ namespace KineticCore.Runtime
         }
 
         [Preserve]
-        public void SetCapturedObjectDimensionsMm(double wMm, double dMm, double hMm, bool triggerSynthesisNow = false)
+        public void SetCapturedObjectDimensionsMm(double wMm, double dMm, double hMm, bool triggerSynthesisNow = false, Vector3? inPlaceMidpointWorld = null)
         {
             ManualTestWidthMm = System.Math.Max(20.0, System.Math.Min(250.0, wMm));
             CapturedDepthMm = System.Math.Max(20.0, System.Math.Min(220.0, dMm));
             CapturedHeightMm = System.Math.Max(12.0, System.Math.Min(160.0, hMm));
+
+            if (inPlaceMidpointWorld.HasValue && DeskWorkspaceOrigin != null)
+            {
+                Vector3 localMid = DeskWorkspaceOrigin.InverseTransformPoint(inPlaceMidpointWorld.Value);
+                float halfH = Mathf.Clamp((float)(CapturedHeightMm * 0.0005), 0.008f, 0.080f);
+                _inPlaceTwinLocalCenter = new Vector3(
+                    Mathf.Clamp(localMid.x, -0.22f, 0.26f),
+                    Mathf.Clamp(localMid.y, halfH, 0.16f),
+                    Mathf.Clamp(localMid.z, -0.16f, 0.16f));
+                _hasInPlaceTwinCapture = true;
+            }
+
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             if (triggerSynthesisNow)
                 TriggerAsyncSynthesis(ManualTestWidthMm);
@@ -792,7 +846,7 @@ namespace KineticCore.Runtime
             CadPrimitiveShapeIndex = (CadPrimitiveShapeIndex + 1) % CadPrimitiveShapeNames.Length;
             SpatialTactileAudio.Instance?.PlayPokeClick();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
-            if (SnappedModuleCount >= 3)
+            if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
             StatusMessage = $"LEFT-HAND PALETTE -> Primitive: [{ActivePrimitiveShapeName}] ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm)";
             WriteDiagnosticState("CycleCadPrimitiveShape");
@@ -804,6 +858,7 @@ namespace KineticCore.Runtime
             if (_stampedCadBodies.Count >= 6)
             {
                 _stampedCadBodies.Clear();
+                _hasAimedBooleanCursor = false;
                 SpatialTactileAudio.Instance?.PlayCaliperTick();
                 UpdateSampleWorkpieceVisual(ManualTestWidthMm);
                 StatusMessage = "MULTI-BODY CAD TREE -> Cleared stamped sub-bodies (Reset to 1 Primary Solid)";
@@ -812,11 +867,18 @@ namespace KineticCore.Runtime
             }
 
             int idx = _stampedCadBodies.Count;
-            // Coaxially stack or radially mate each newly stamped primitive onto the parametric CAD assembly
+            // Coaxially stack or radially mate each newly stamped primitive onto the parametric CAD assembly,
+            // OR use the live 3D Boolean CSG cursor position aimed by the user's fingertip!
             double[] offX = { 0.0,  22.0, -22.0,  0.0,  18.0, -18.0 };
             double[] offZ = { 0.0,   0.0,   0.0, 20.0, -18.0,  18.0 };
             double[] offY = { CapturedHeightMm * 0.55, 8.0, 8.0, 10.0, 14.0, 14.0 };
             double scale = (CadBooleanModeIndex == 1) ? 0.52 : 0.64; // Boolean Cut creates precision negative bore/slot
+
+            double targetOffX = _hasAimedBooleanCursor ? _aimedBooleanOffsetMm.x : offX[idx % offX.Length];
+            double targetOffY = _hasAimedBooleanCursor ? _aimedBooleanOffsetMm.y : offY[idx % offY.Length];
+            double targetOffZ = _hasAimedBooleanCursor ? _aimedBooleanOffsetMm.z : offZ[idx % offZ.Length];
+            bool usedAimedCursor = _hasAimedBooleanCursor;
+            _hasAimedBooleanCursor = false;
 
             var spec = new StampedCadBodySpec
             {
@@ -828,17 +890,19 @@ namespace KineticCore.Runtime
                 widthMm = System.Math.Max(14.0, ManualTestWidthMm * scale),
                 depthMm = System.Math.Max(14.0, CapturedDepthMm * scale),
                 heightMm = System.Math.Max(10.0, CapturedHeightMm * 0.65),
-                localOffsetXMm = offX[idx % offX.Length],
-                localOffsetYMm = offY[idx % offY.Length],
-                localOffsetZMm = offZ[idx % offZ.Length]
+                localOffsetXMm = targetOffX,
+                localOffsetYMm = targetOffY,
+                localOffsetZMm = targetOffZ
             };
             _stampedCadBodies.Add(spec);
 
             SpatialTactileAudio.Instance?.PlayCaliperLock();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
-            if (SnappedModuleCount >= 3)
+            if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
-            StatusMessage = $"STAMPED BODY #{_stampedCadBodies.Count + 1} -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName} | {ActivePatternModeName})";
+            StatusMessage = usedAimedCursor
+                ? $"STAMPED BODY #{_stampedCadBodies.Count + 1} @ ({targetOffX:F0},{targetOffY:F0},{targetOffZ:F0})mm -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName})"
+                : $"STAMPED BODY #{_stampedCadBodies.Count + 1} -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName} | {ActivePatternModeName})";
             WriteDiagnosticState("StampNewCadBodyToAssembly");
         }
 
@@ -848,7 +912,7 @@ namespace KineticCore.Runtime
             CadBooleanModeIndex = (CadBooleanModeIndex + 1) % CadBooleanModeNames.Length;
             SpatialTactileAudio.Instance?.PlayPokeClick();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
-            StatusMessage = $"BOOLEAN CSG MODE -> [{ActiveBooleanModeName}] (Poke [+STAMP BODY] to combine)";
+            StatusMessage = $"BOOLEAN CSG MODE -> [{ActiveBooleanModeName}] (Hover finger on CAD part to aim 3D cursor, then [+STAMP BODY])";
             WriteDiagnosticState("CycleCadBooleanMode");
         }
 
@@ -858,7 +922,7 @@ namespace KineticCore.Runtime
             CadPatternModeIndex = (CadPatternModeIndex + 1) % CadPatternModeNames.Length;
             SpatialTactileAudio.Instance?.PlaySynthChime();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
-            if (SnappedModuleCount >= 3)
+            if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
             StatusMessage = $"FUSION PATTERN ARRAY -> [{ActivePatternModeName}] ({ActivePrimitiveShapeName})";
             WriteDiagnosticState("CycleCadPatternArray");
@@ -889,7 +953,7 @@ namespace KineticCore.Runtime
             }
             SpatialTactileAudio.Instance?.PlayCaliperLock();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
-            if (SnappedModuleCount >= 3)
+            if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
             StatusMessage = $"PUSH/PULL EXTRUDE -> {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | Vol={CadPartVolumeCm3:F1}cm³ ({CadPartMassGrams:F1}g)";
             WriteDiagnosticState("CycleDirectPushPullExtrude");
@@ -901,7 +965,7 @@ namespace KineticCore.Runtime
             CadFeatureOpIndex = (CadFeatureOpIndex + 1) % CadFeatureOpNames.Length;
             SpatialTactileAudio.Instance?.PlayPokeClick();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
-            if (SnappedModuleCount >= 3)
+            if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
             StatusMessage = $"FUSION CAD FEATURE -> [{CadFeatureOpNames[CadFeatureOpIndex]}] ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g)";
             WriteDiagnosticState("CycleCadFeatureOp");
@@ -913,7 +977,7 @@ namespace KineticCore.Runtime
             CadMaterialIndex = (CadMaterialIndex + 1) % CadMaterialNames.Length;
             SpatialTactileAudio.Instance?.PlayCaliperTick();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
-            if (SnappedModuleCount >= 3)
+            if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
             StatusMessage = $"CAD MATERIAL -> {CadMaterialNames[CadMaterialIndex]} | Mass={CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m print)";
             WriteDiagnosticState("CycleCadMaterial");
@@ -923,19 +987,82 @@ namespace KineticCore.Runtime
         public void SnapAddModularJointAndLink()
         {
             SnappedModuleCount = (SnappedModuleCount + 1) % 4;
+            if (SnappedModuleCount == 0)
+            {
+                _snappedModuleCustomSpecs.Clear();
+            }
+            else
+            {
+                // Capture the user's current sculpted 1:1 CAD solid dimensions, primitive shape, and mass (g)
+                // so any snapped module carries the real custom CAD part into the kinematic chain & URDF!
+                var customModule = new StampedCadBodySpec
+                {
+                    bodyName = $"Custom_{ActivePrimitiveShapeName.Split(' ')[0]}_{SnappedModuleCount}",
+                    primitiveShape = CadPrimitiveShapeIndex,
+                    booleanMode = CadBooleanModeIndex,
+                    patternMode = CadPatternModeIndex,
+                    featureOp = CadFeatureOpIndex,
+                    widthMm = ManualTestWidthMm,
+                    depthMm = CapturedDepthMm,
+                    heightMm = CapturedHeightMm,
+                    localOffsetXMm = CadPartMassGrams // store exact computed mass (g)
+                };
+                if (_snappedModuleCustomSpecs.Count >= SnappedModuleCount)
+                    _snappedModuleCustomSpecs[SnappedModuleCount - 1] = customModule;
+                else
+                    _snappedModuleCustomSpecs.Add(customModule);
+            }
+
             _spawnAnimTimer = 0.85f;
             SpatialTactileAudio.Instance?.PlayCaliperLock();
             SynthesizeAndSpawnSync(ManualTestWidthMm);
 
+            string partTag = $"{ActivePrimitiveShapeName} ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm, {CadPartMassGrams:F0}g)";
             string[] snapDescriptions =
             {
                 "Reset to Base 3-DoF Mechanism",
-                "Snapped +Prismatic Linear Actuator Slider (4-DoF Screw S_pris)",
-                "Snapped +Revolute Pitch Wrist Module (5-DoF Screw S_rev)",
-                "Snapped +Revolute Roll Flange & Captured 1:1 CAD Solid (6-DoF Full Assembly!)"
+                $"Snapped +Prismatic Slider + {partTag} (4-DoF Screw S_pris)",
+                $"Snapped +Revolute Pitch Wrist + {partTag} (5-DoF Screw S_rev)",
+                $"Snapped +Revolute Roll Flange + {partTag} (6-DoF Full Assembly!)"
             };
             StatusMessage = $"MAGNETIC SNAP -> {snapDescriptions[SnappedModuleCount]}";
             WriteDiagnosticState("SnapAddModularJointAndLink");
+        }
+
+        [Preserve]
+        public void CycleJointScrewAxis(int jointIndex = -1)
+        {
+            int n = (CurrentSpec?.joints != null) ? CurrentSpec.joints.Length : 3;
+            if (n <= 0) return;
+
+            if (jointIndex < 0 || jointIndex >= n)
+            {
+                _lastInspectedJointIdx = (_lastInspectedJointIdx + 1) % n;
+                jointIndex = _lastInspectedJointIdx;
+            }
+            else
+            {
+                _lastInspectedJointIdx = jointIndex;
+            }
+
+            int idx = Mathf.Clamp(jointIndex, 0, _jointAxisOverrides.Length - 1);
+            // 0 = Default, 1 = Revolute Pitch Z [0,0,1], 2 = Revolute Yaw Y [0,1,0], 3 = Revolute Roll X [1,0,0], 4 = Prismatic Slider X [1,0,0]
+            _jointAxisOverrides[idx] = (_jointAxisOverrides[idx] + 1) % 5;
+            int mode = _jointAxisOverrides[idx];
+
+            string[] axisLabels =
+            {
+                "Default Screw S_i",
+                "Revolute Pitch Z [0,0,1]",
+                "Revolute Yaw Y [0,1,0]",
+                "Revolute Roll X [1,0,0]",
+                "Prismatic Linear Slider X [1,0,0]"
+            };
+
+            SpatialTactileAudio.Instance?.PlayCaliperLock();
+            SynthesizeAndSpawnSync(ManualTestWidthMm);
+            StatusMessage = $"SCREW AXIS PIN J{idx + 1} FLIPPED -> {axisLabels[mode]} (Live PoE SE(3) Recompiled)";
+            WriteDiagnosticState("CycleJointScrewAxis");
         }
 
         [Preserve]
@@ -953,7 +1080,7 @@ namespace KineticCore.Runtime
 
         private MechanismSpec AppendSnappedModulesToSpec(MechanismSpec baseSpec)
         {
-            if (baseSpec == null || SnappedModuleCount <= 0 || baseSpec.joints == null || baseSpec.links == null)
+            if (baseSpec == null || baseSpec.joints == null || baseSpec.links == null)
                 return baseSpec;
 
             var links = new List<LinkSpec>(baseSpec.links);
@@ -962,10 +1089,20 @@ namespace KineticCore.Runtime
             double curEeY = (baseSpec.endEffectorHomePosition != null && baseSpec.endEffectorHomePosition.Length == 3) ? baseSpec.endEffectorHomePosition[1] : 0.06;
             double curEeZ = (baseSpec.endEffectorHomePosition != null && baseSpec.endEffectorHomePosition.Length == 3) ? baseSpec.endEffectorHomePosition[2] : 0.0;
 
-            // Module 1 (4th DoF): Prismatic Linear Actuator Slider along +X
+            double cadLenDefault = System.Math.Max(0.028, System.Math.Min(0.088, CapturedDepthMm * 0.001));
+            double cadWidDefault = System.Math.Max(0.020, System.Math.Min(0.095, ManualTestWidthMm * 0.001));
+            double cadHgtDefault = System.Math.Max(0.016, System.Math.Min(0.070, CapturedHeightMm * 0.001));
+            double cadMassKgDefault = System.Math.Max(0.03, CadPartMassGrams * 0.001);
+
+            // Module 1 (4th DoF): Prismatic Linear Actuator Slider along +X (scaled by user's sculpted CAD part!)
             if (SnappedModuleCount >= 1)
             {
-                double sliderLen = 0.052;
+                StampedCadBodySpec mSpec = (_snappedModuleCustomSpecs.Count >= 1) ? _snappedModuleCustomSpecs[0] : null;
+                double sliderLen = mSpec != null ? System.Math.Max(0.032, System.Math.Min(0.085, mSpec.depthMm * 0.001)) : System.Math.Max(0.042, cadLenDefault * 0.85);
+                double sliderWid = mSpec != null ? System.Math.Max(0.016, System.Math.Min(0.055, mSpec.widthMm * 0.00045)) : 0.020;
+                double sliderHgt = mSpec != null ? System.Math.Max(0.016, System.Math.Min(0.050, mSpec.heightMm * 0.00055)) : 0.020;
+                double sliderMass = mSpec != null ? System.Math.Max(0.04, mSpec.localOffsetXMm * 0.001) : cadMassKgDefault;
+
                 string pLink = links[links.Count - 1].name;
                 string cLink = "snapped_prismatic_slider_link";
                 joints.Add(new JointSpec
@@ -980,16 +1117,16 @@ namespace KineticCore.Runtime
                     axisX = 1.0,
                     axisY = 0.0,
                     axisZ = 0.0,
-                    minLimitRad = -0.040,
-                    maxLimitRad = 0.060
+                    minLimitRad = -0.045,
+                    maxLimitRad = 0.065
                 });
                 links.Add(new LinkSpec
                 {
                     name = cLink,
                     lengthM = sliderLen,
-                    widthM = 0.018,
-                    heightM = 0.018,
-                    massKg = 0.14,
+                    widthM = sliderWid,
+                    heightM = sliderHgt,
+                    massKg = sliderMass,
                     centerX = curEeX + sliderLen * 0.5,
                     centerY = curEeY,
                     centerZ = curEeZ
@@ -997,10 +1134,15 @@ namespace KineticCore.Runtime
                 curEeX += sliderLen;
             }
 
-            // Module 2 (5th DoF): Revolute Pitch Wrist around Z
+            // Module 2 (5th DoF): Revolute Pitch Wrist around Z (scaled by user's sculpted CAD part!)
             if (SnappedModuleCount >= 2)
             {
-                double wristLen = 0.046;
+                StampedCadBodySpec mSpec = (_snappedModuleCustomSpecs.Count >= 2) ? _snappedModuleCustomSpecs[1] : null;
+                double wristLen = mSpec != null ? System.Math.Max(0.030, System.Math.Min(0.080, mSpec.depthMm * 0.0009)) : System.Math.Max(0.038, cadLenDefault * 0.80);
+                double wristWid = mSpec != null ? System.Math.Max(0.016, System.Math.Min(0.055, mSpec.widthMm * 0.00045)) : 0.018;
+                double wristHgt = mSpec != null ? System.Math.Max(0.016, System.Math.Min(0.050, mSpec.heightMm * 0.00055)) : 0.018;
+                double wristMass = mSpec != null ? System.Math.Max(0.04, mSpec.localOffsetXMm * 0.001) : cadMassKgDefault;
+
                 string pLink = links[links.Count - 1].name;
                 string cLink = "snapped_revolute_wrist_link";
                 joints.Add(new JointSpec
@@ -1022,9 +1164,9 @@ namespace KineticCore.Runtime
                 {
                     name = cLink,
                     lengthM = wristLen,
-                    widthM = 0.016,
-                    heightM = 0.016,
-                    massKg = 0.11,
+                    widthM = wristWid,
+                    heightM = wristHgt,
+                    massKg = wristMass,
                     centerX = curEeX + wristLen * 0.5,
                     centerY = curEeY,
                     centerZ = curEeZ
@@ -1035,9 +1177,12 @@ namespace KineticCore.Runtime
             // Module 3 (6th DoF): Revolute Roll Flange around X carrying the Captured 1:1 Real-World CAD Part!
             if (SnappedModuleCount >= 3)
             {
-                double cadLen = System.Math.Max(0.024, System.Math.Min(0.095, CapturedDepthMm * 0.001));
-                double cadWid = System.Math.Max(0.024, System.Math.Min(0.110, ManualTestWidthMm * 0.001));
-                double cadHgt = System.Math.Max(0.016, System.Math.Min(0.075, CapturedHeightMm * 0.001));
+                StampedCadBodySpec mSpec = (_snappedModuleCustomSpecs.Count >= 3) ? _snappedModuleCustomSpecs[2] : null;
+                double cadLen = mSpec != null ? System.Math.Max(0.024, System.Math.Min(0.095, mSpec.depthMm * 0.001)) : cadLenDefault;
+                double cadWid = mSpec != null ? System.Math.Max(0.024, System.Math.Min(0.110, mSpec.widthMm * 0.001)) : cadWidDefault;
+                double cadHgt = mSpec != null ? System.Math.Max(0.016, System.Math.Min(0.075, mSpec.heightMm * 0.001)) : cadHgtDefault;
+                double cadMass = mSpec != null ? System.Math.Max(0.02, mSpec.localOffsetXMm * 0.001) : cadMassKgDefault;
+
                 string pLink = links[links.Count - 1].name;
                 string cLink = "snapped_captured_cad_part";
                 joints.Add(new JointSpec
@@ -1061,12 +1206,43 @@ namespace KineticCore.Runtime
                     lengthM = cadLen,
                     widthM = cadWid,
                     heightM = cadHgt,
-                    massKg = System.Math.Max(0.02, CadPartMassGrams * 0.001),
+                    massKg = cadMass,
                     centerX = curEeX + cadLen * 0.5,
                     centerY = curEeY,
                     centerZ = curEeZ
                 });
                 curEeX += cadLen;
+            }
+
+            // Apply per-joint Screw Axis overrides (S_i Inspector: Revolute Z / Y / X or Prismatic Slider X)
+            for (int i = 0; i < joints.Count && i < _jointAxisOverrides.Length; i++)
+            {
+                int ov = _jointAxisOverrides[i];
+                if (ov <= 0) continue;
+                JointSpec j = joints[i];
+                switch (ov)
+                {
+                    case 1: // Revolute Pitch Z [0,0,1]
+                        j.jointType = "revolute";
+                        j.axisX = 0.0; j.axisY = 0.0; j.axisZ = 1.0;
+                        j.minLimitRad = -2.2; j.maxLimitRad = 2.2;
+                        break;
+                    case 2: // Revolute Yaw Y [0,1,0]
+                        j.jointType = "revolute";
+                        j.axisX = 0.0; j.axisY = 1.0; j.axisZ = 0.0;
+                        j.minLimitRad = -2.6; j.maxLimitRad = 2.6;
+                        break;
+                    case 3: // Revolute Roll X [1,0,0]
+                        j.jointType = "revolute";
+                        j.axisX = 1.0; j.axisY = 0.0; j.axisZ = 0.0;
+                        j.minLimitRad = -3.14; j.maxLimitRad = 3.14;
+                        break;
+                    case 4: // Prismatic Linear Slider X [1,0,0]
+                        j.jointType = "prismatic";
+                        j.axisX = 1.0; j.axisY = 0.0; j.axisZ = 0.0;
+                        j.minLimitRad = -0.045; j.maxLimitRad = 0.065;
+                        break;
+                }
             }
 
             return new MechanismSpec
@@ -1141,6 +1317,7 @@ namespace KineticCore.Runtime
             CreateTrajectoryTrail();
             CreatePayloadHousingAndSweptEnvelope();
             CreateHandInspectPreview();
+            CreateDirectManipulationGizmos();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
         }
 
@@ -1512,6 +1689,348 @@ namespace KineticCore.Runtime
             _handInspectRoot.SetActive(HandInspectActive);
         }
 
+        private void CreateDirectManipulationGizmos()
+        {
+            // 1. In-Place Passthrough Caliper Bounding Box Twin (12 glowing wireframe edges at the real-world object midpoint)
+            _inPlaceTwinRoot = new GameObject("InPlace_Passthrough_TwinBox");
+            _inPlaceTwinRoot.transform.SetParent(DeskWorkspaceOrigin, false);
+            _inPlaceTwinRoot.transform.localPosition = _inPlaceTwinLocalCenter;
+            _inPlaceTwinRoot.transform.localRotation = Quaternion.identity;
+
+            Color twinEdgeCol = new Color(0.10f, 0.95f, 1.0f);
+            for (int i = 0; i < 12; i++)
+            {
+                GameObject edge = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                edge.name = $"InPlaceTwinEdge_{i}";
+                Destroy(edge.GetComponent<Collider>());
+                edge.transform.SetParent(_inPlaceTwinRoot.transform, false);
+                Renderer r = edge.GetComponent<Renderer>();
+                SetColorSafe(r, twinEdgeCol);
+                _inPlaceTwinEdges[i] = edge.transform;
+                _inPlaceTwinEdgeRenderers[i] = r;
+            }
+
+            _inPlaceTwinLabel = WorldTextFactory.Create(
+                "InPlaceTwin_Label", _inPlaceTwinRoot.transform,
+                new Vector3(0f, 0.042f, 0f), Quaternion.Euler(30f, 0f, 0f),
+                0.0013f, 28, new Color(0.30f, 1.0f, 0.95f),
+                "IN-PLACE PASSTHROUGH TWIN\nPoint Both Index Tips on Desk Object to Lock 1:1");
+
+            // 2. Direct 3D Face-Pull Gizmo Handles (+X Width, +Y Height, +Z Depth) on the CAD Solid
+            string[] handleNames = { "FacePullHandle_X_Width", "FacePullHandle_Y_Height", "FacePullHandle_Z_Depth" };
+            string[] handleTags = { "+X W", "+Y H", "+Z D" };
+            for (int a = 0; a < 3; a++)
+            {
+                GameObject hGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                hGo.name = handleNames[a];
+                // Keep Collider enabled so Desktop Mouse Raycast and VR Fingertip distance checks both work!
+                hGo.transform.SetParent(DeskWorkspaceOrigin, false);
+                hGo.transform.localScale = Vector3.one * 0.017f;
+                Renderer hr = hGo.GetComponent<Renderer>();
+                SetColorSafe(hr, _facePullBaseColors[a]);
+                _facePullHandles[a] = hGo.transform;
+                _facePullRenderers[a] = hr;
+
+                WorldTextFactory.Create(
+                    $"FacePullLabel_{a}", hGo.transform,
+                    new Vector3(0f, 0.78f, 0f), Quaternion.Euler(25f, 0f, 0f),
+                    0.075f, 28, _facePullBaseColors[a], handleTags[a]);
+            }
+
+            // 3. Interactive 3D Boolean CSG Positioning Cursor (snaps to 2mm CAD grid inside workpiece before stamping)
+            _liveBooleanCursorObj = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            _liveBooleanCursorObj.name = "LiveBoolean_3D_Cursor";
+            Destroy(_liveBooleanCursorObj.GetComponent<Collider>());
+            _liveBooleanCursorObj.transform.SetParent(DeskWorkspaceOrigin, false);
+            _liveBooleanCursorObj.transform.localScale = new Vector3(0.018f, 0.015f, 0.018f);
+            _liveBooleanCursorRenderer = _liveBooleanCursorObj.GetComponent<Renderer>();
+            SetColorSafe(_liveBooleanCursorRenderer, new Color(1.0f, 0.18f, 0.48f));
+            _liveBooleanCursorObj.SetActive(false);
+
+            // 4. Drag-Carry Module Ghost & 6-Segment Glowing Magnetic Snap Tether to the Robot Arm
+            _dragCarryGhostObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            _dragCarryGhostObj.name = "DragCarry_ModuleGhost";
+            Destroy(_dragCarryGhostObj.GetComponent<Collider>());
+            _dragCarryGhostObj.transform.SetParent(DeskWorkspaceOrigin, false);
+            _dragCarryGhostObj.transform.localScale = new Vector3(0.024f, 0.018f, 0.024f);
+            _dragCarryGhostRenderer = _dragCarryGhostObj.GetComponent<Renderer>();
+            SetColorSafe(_dragCarryGhostRenderer, new Color(1.0f, 0.84f, 0.20f));
+            _dragCarryGhostObj.SetActive(false);
+
+            for (int i = 0; i < _magneticTetherSegments.Length; i++)
+            {
+                GameObject seg = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                seg.name = $"MagneticSnapTether_{i}";
+                Destroy(seg.GetComponent<Collider>());
+                seg.transform.SetParent(DeskWorkspaceOrigin, false);
+                seg.transform.localScale = Vector3.one * 0.0075f;
+                Renderer sr = seg.GetComponent<Renderer>();
+                SetColorSafe(sr, new Color(1.0f, 0.85f, 0.18f));
+                seg.SetActive(false);
+                _magneticTetherSegments[i] = seg.transform;
+                _magneticTetherRenderers[i] = sr;
+            }
+        }
+
+        private void UpdateInPlaceTwinAndFaceHandles(float wMeters, float dMeters, float hMeters)
+        {
+            // Position the 3 Direct Face-Pull Handles (+X, +Y, +Z) on the outer faces of _sampleWorkpiece
+            if (_sampleWorkpiece != null && _facePullHandles[0] != null)
+            {
+                bool showHandles = !_isHoldingWorkpiece;
+                Vector3 wpCenter = _sampleWorkpiece.localPosition;
+                Vector3[] faceOffsets =
+                {
+                    new Vector3(wMeters * 0.5f + 0.012f, 0f, 0f), // +X Width face
+                    new Vector3(0f, hMeters * 0.5f + 0.012f, 0f), // +Y Top/Height face
+                    new Vector3(0f, 0f, dMeters * 0.5f + 0.012f)  // +Z Depth face
+                };
+                for (int a = 0; a < 3; a++)
+                {
+                    if (_facePullHandles[a] == null) continue;
+                    _facePullHandles[a].gameObject.SetActive(showHandles);
+                    _facePullHandles[a].localPosition = wpCenter + faceOffsets[a];
+                    bool isPulled = (_activeFacePullAxis == a);
+                    _facePullHandles[a].localScale = Vector3.one * (isPulled ? 0.022f : 0.0165f);
+                    SetColorSafe(_facePullRenderers[a], isPulled ? Color.white : _facePullBaseColors[a]);
+                }
+            }
+
+            // Update the 12 wireframe edge rails of the In-Place Passthrough Bounding Twin
+            if (_inPlaceTwinRoot != null && _inPlaceTwinEdges[0] != null)
+            {
+                float hx = wMeters * 0.5f;
+                float hy = hMeters * 0.5f;
+                float hz = dMeters * 0.5f;
+                float t = _hasInPlaceTwinCapture ? 0.0024f : 0.0016f;
+                _inPlaceTwinRoot.transform.localPosition = new Vector3(_inPlaceTwinLocalCenter.x, Mathf.Max(hy, _inPlaceTwinLocalCenter.y), _inPlaceTwinLocalCenter.z);
+
+                // 4 X-aligned edges
+                _inPlaceTwinEdges[0].localPosition = new Vector3(0f, -hy, -hz); _inPlaceTwinEdges[0].localScale = new Vector3(wMeters, t, t);
+                _inPlaceTwinEdges[1].localPosition = new Vector3(0f,  hy, -hz); _inPlaceTwinEdges[1].localScale = new Vector3(wMeters, t, t);
+                _inPlaceTwinEdges[2].localPosition = new Vector3(0f, -hy,  hz); _inPlaceTwinEdges[2].localScale = new Vector3(wMeters, t, t);
+                _inPlaceTwinEdges[3].localPosition = new Vector3(0f,  hy,  hz); _inPlaceTwinEdges[3].localScale = new Vector3(wMeters, t, t);
+                // 4 Y-aligned edges
+                _inPlaceTwinEdges[4].localPosition = new Vector3(-hx, 0f, -hz); _inPlaceTwinEdges[4].localScale = new Vector3(t, hMeters, t);
+                _inPlaceTwinEdges[5].localPosition = new Vector3( hx, 0f, -hz); _inPlaceTwinEdges[5].localScale = new Vector3(t, hMeters, t);
+                _inPlaceTwinEdges[6].localPosition = new Vector3(-hx, 0f,  hz); _inPlaceTwinEdges[6].localScale = new Vector3(t, hMeters, t);
+                _inPlaceTwinEdges[7].localPosition = new Vector3( hx, 0f,  hz); _inPlaceTwinEdges[7].localScale = new Vector3(t, hMeters, t);
+                // 4 Z-aligned edges
+                _inPlaceTwinEdges[8].localPosition  = new Vector3(-hx, -hy, 0f); _inPlaceTwinEdges[8].localScale  = new Vector3(t, t, dMeters);
+                _inPlaceTwinEdges[9].localPosition  = new Vector3( hx, -hy, 0f); _inPlaceTwinEdges[9].localScale  = new Vector3(t, t, dMeters);
+                _inPlaceTwinEdges[10].localPosition = new Vector3(-hx,  hy, 0f); _inPlaceTwinEdges[10].localScale = new Vector3(t, t, dMeters);
+                _inPlaceTwinEdges[11].localPosition = new Vector3( hx,  hy, 0f); _inPlaceTwinEdges[11].localScale = new Vector3(t, t, dMeters);
+
+                if (_inPlaceTwinLabel != null)
+                {
+                    _inPlaceTwinLabel.transform.localPosition = new Vector3(0f, hy + 0.018f, 0f);
+                    _inPlaceTwinLabel.text = _hasInPlaceTwinCapture
+                        ? $"1:1 PASSTHROUGH TWIN [LOCKED]\n{ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm (Drag +X/+Y/+Z Handles)"
+                        : $"IN-PLACE PASSTHROUGH TWIN ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm)\nPoint Both Index Tips on Real Object to Capture";
+                }
+            }
+        }
+
+        [Preserve]
+        public bool TryHandleDirectSpatialCadManipulation(
+            Vector3 pointerWorldPos,
+            bool isActivePointOrDrag,
+            int forcedFaceAxis = -1,
+            Vector3? leftPalettePreviewPos = null,
+            bool aimBooleanRequested = false)
+        {
+            if (DeskWorkspaceOrigin == null || _sampleWorkpiece == null) return false;
+
+            if (_carrySnapCooldown > 0f)
+                _carrySnapCooldown = Mathf.Max(0f, _carrySnapCooldown - Time.deltaTime);
+
+            if (!isActivePointOrDrag && forcedFaceAxis < 0)
+            {
+                if (_activeFacePullAxis >= 0)
+                {
+                    _activeFacePullAxis = -1;
+                    UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+                }
+                if (_isCarryingSnapModule)
+                {
+                    _isCarryingSnapModule = false;
+                    if (_dragCarryGhostObj != null) _dragCarryGhostObj.SetActive(false);
+                    for (int i = 0; i < _magneticTetherSegments.Length; i++)
+                        if (_magneticTetherSegments[i] != null) _magneticTetherSegments[i].gameObject.SetActive(false);
+                }
+                return false;
+            }
+
+            Vector3 localPtr = DeskWorkspaceOrigin.InverseTransformPoint(pointerWorldPos);
+            Vector3 wpCenter = _sampleWorkpiece.localPosition;
+
+            // 1. Direct 3D Face-Pull Gizmo Extrusion (+X Width, +Y Height, +Z Depth)
+            if (!_isHoldingWorkpiece)
+            {
+                if (forcedFaceAxis >= 0 && forcedFaceAxis <= 2)
+                {
+                    _activeFacePullAxis = forcedFaceAxis;
+                }
+                else if (_activeFacePullAxis < 0)
+                {
+                    for (int a = 0; a < 3; a++)
+                    {
+                        if (_facePullHandles[a] != null && Vector3.Distance(pointerWorldPos, _facePullHandles[a].position) < 0.034f)
+                        {
+                            _activeFacePullAxis = a;
+                            SpatialTactileAudio.Instance?.PlayPokeClick(_facePullHandles[a].position);
+                            break;
+                        }
+                    }
+                }
+                else if (_facePullHandles[_activeFacePullAxis] != null &&
+                         Vector3.Distance(pointerWorldPos, _facePullHandles[_activeFacePullAxis].position) > 0.14f)
+                {
+                    _activeFacePullAxis = -1;
+                }
+
+                if (_activeFacePullAxis >= 0)
+                {
+                    DirectPushPullActive = true;
+                    string axisTag;
+                    int tickBucket;
+                    if (_activeFacePullAxis == 0) // +X Width
+                    {
+                        double newW = System.Math.Round(System.Math.Abs(localPtr.x - wpCenter.x) * 2000.0);
+                        ManualTestWidthMm = System.Math.Max(20.0, System.Math.Min(250.0, newW));
+                        axisTag = $"+X WIDTH = {ManualTestWidthMm:F0}mm";
+                        tickBucket = (int)(ManualTestWidthMm / 2.0);
+                    }
+                    else if (_activeFacePullAxis == 1) // +Y Height
+                    {
+                        double newH = System.Math.Round(System.Math.Max(0.012f, localPtr.y) * 1000.0);
+                        CapturedHeightMm = System.Math.Max(12.0, System.Math.Min(160.0, newH));
+                        axisTag = $"+Y HEIGHT = {CapturedHeightMm:F0}mm";
+                        tickBucket = (int)(CapturedHeightMm / 2.0);
+                    }
+                    else // +Z Depth
+                    {
+                        double newD = System.Math.Round(System.Math.Abs(localPtr.z - wpCenter.z) * 2000.0);
+                        CapturedDepthMm = System.Math.Max(20.0, System.Math.Min(220.0, newD));
+                        axisTag = $"+Z DEPTH = {CapturedDepthMm:F0}mm";
+                        tickBucket = (int)(CapturedDepthMm / 2.0);
+                    }
+
+                    if (tickBucket != _lastFacePullTickBucket)
+                    {
+                        _lastFacePullTickBucket = tickBucket;
+                        SpatialTactileAudio.Instance?.PlayCaliperTick(pointerWorldPos);
+                    }
+
+                    UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+                    if (SnappedModuleCount >= 1)
+                        SynthesizeAndSpawnSync(ManualTestWidthMm);
+
+                    StatusMessage = $"3D FACE HANDLE DRAG [{axisTag}] -> {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m)";
+                    return true;
+                }
+            }
+
+            // 2. Interactive 3D Boolean CSG Positioning Cursor (when hovering inside/over the Left Station CAD Solid)
+            float distToWpCenter = Vector3.Distance(localPtr, wpCenter);
+            if (!_isHoldingWorkpiece && distToWpCenter < 0.088f && (CadBooleanModeIndex == 1 || CadBooleanModeIndex == 2 || aimBooleanRequested))
+            {
+                float maxX = Mathf.Max(8f, (float)ManualTestWidthMm * 0.45f);
+                float maxY = Mathf.Max(6f, (float)CapturedHeightMm * 0.55f);
+                float maxZ = Mathf.Max(8f, (float)CapturedDepthMm * 0.45f);
+                float offXMm = Mathf.Clamp(Mathf.Round((localPtr.x - wpCenter.x) * 500f) * 2f, -maxX, maxX);
+                float offYMm = Mathf.Clamp(Mathf.Round((localPtr.y - wpCenter.y) * 500f) * 2f, -maxY * 0.5f, maxY);
+                float offZMm = Mathf.Clamp(Mathf.Round((localPtr.z - wpCenter.z) * 500f) * 2f, -maxZ, maxZ);
+
+                _aimedBooleanOffsetMm = new Vector3(offXMm, offYMm, offZMm);
+                _hasAimedBooleanCursor = true;
+                _booleanCursorActiveTimer = 2.5f;
+
+                if (_liveBooleanCursorObj != null)
+                {
+                    _liveBooleanCursorObj.SetActive(true);
+                    _liveBooleanCursorObj.transform.localPosition = wpCenter + _aimedBooleanOffsetMm * 0.001f;
+                    float scaleFactor = (CadBooleanModeIndex == 1) ? 0.48f : 0.58f;
+                    float cw = Mathf.Clamp((float)(ManualTestWidthMm * 0.001 * scaleFactor), 0.012f, 0.075f);
+                    float ch = Mathf.Clamp((float)(CapturedHeightMm * 0.0005 * 0.7f), 0.006f, 0.045f);
+                    float cd = Mathf.Clamp((float)(CapturedDepthMm * 0.001 * scaleFactor), 0.012f, 0.075f);
+                    _liveBooleanCursorObj.transform.localScale = new Vector3(cw, ch, cd);
+                    Color curCol = (CadBooleanModeIndex == 1)
+                        ? new Color(1.0f, 0.15f, 0.45f)
+                        : ((CadBooleanModeIndex == 2) ? new Color(1.0f, 0.80f, 0.15f) : new Color(0.20f, 1.0f, 0.65f));
+                    SetColorSafe(_liveBooleanCursorRenderer, curCol);
+                }
+
+                StatusMessage = $"3D BOOLEAN AIM [{ActiveBooleanModeName}] @ ({offXMm:F0},{offYMm:F0},{offZMm:F0})mm -> Poke [+STAMP BODY] to commit!";
+            }
+
+            // 3. True Drag-Carry-and-Snap from Left-Hand Palette 3D Preview (or CAD Workbench) to the Robot Arm's Distal Snap Ring
+            if (_carrySnapCooldown <= 0f && _distalSnapPortRing != null)
+            {
+                if (!_isCarryingSnapModule && leftPalettePreviewPos.HasValue &&
+                    Vector3.Distance(pointerWorldPos, leftPalettePreviewPos.Value) < 0.048f)
+                {
+                    _isCarryingSnapModule = true;
+                    SpatialTactileAudio.Instance?.PlayPokeClick(leftPalettePreviewPos.Value);
+                }
+
+                float distToSnapPort = Vector3.Distance(pointerWorldPos, _distalSnapPortRing.position);
+                bool showTether = _isCarryingSnapModule || (distToSnapPort < 0.125f && distToSnapPort > 0.015f);
+
+                if (showTether)
+                {
+                    if (_dragCarryGhostObj != null)
+                    {
+                        _dragCarryGhostObj.SetActive(true);
+                        _dragCarryGhostObj.transform.position = pointerWorldPos;
+                        _dragCarryGhostObj.transform.Rotate(Vector3.up, Time.deltaTime * 90f, Space.Self);
+                        float gw = Mathf.Clamp((float)(ManualTestWidthMm * 0.00045), 0.016f, 0.048f);
+                        float gh = Mathf.Clamp((float)(CapturedHeightMm * 0.00045), 0.012f, 0.038f);
+                        float gd = Mathf.Clamp((float)(CapturedDepthMm * 0.00045), 0.016f, 0.048f);
+                        _dragCarryGhostObj.transform.localScale = new Vector3(gw, gh, gd);
+                    }
+
+                    for (int i = 0; i < _magneticTetherSegments.Length; i++)
+                    {
+                        if (_magneticTetherSegments[i] == null) continue;
+                        _magneticTetherSegments[i].gameObject.SetActive(true);
+                        float t = (i + 1f) / (_magneticTetherSegments.Length + 1f);
+                        _magneticTetherSegments[i].position = Vector3.Lerp(pointerWorldPos, _distalSnapPortRing.position, t);
+                        float pulse = 0.0065f + 0.0025f * Mathf.Sin(Time.time * 10f - i * 0.7f);
+                        _magneticTetherSegments[i].localScale = Vector3.one * pulse;
+                        SetColorSafe(_magneticTetherRenderers[i], Color.Lerp(new Color(0.20f, 0.95f, 1.0f), new Color(1.0f, 0.82f, 0.15f), t));
+                    }
+
+                    if (distToSnapPort < 0.042f)
+                    {
+                        _isCarryingSnapModule = false;
+                        _carrySnapCooldown = 1.35f;
+                        if (_dragCarryGhostObj != null) _dragCarryGhostObj.SetActive(false);
+                        for (int i = 0; i < _magneticTetherSegments.Length; i++)
+                            if (_magneticTetherSegments[i] != null) _magneticTetherSegments[i].gameObject.SetActive(false);
+                        SnapAddModularJointAndLink();
+                        return true;
+                    }
+                    else if (_isCarryingSnapModule)
+                    {
+                        StatusMessage = $"CARRYING [{ActivePrimitiveShapeName} {CadPartMassGrams:F0}g] -> Magnetic Tether ({distToSnapPort * 100f:F1}cm to Gold Snap Port)";
+                        return true;
+                    }
+                }
+                else
+                {
+                    if (_dragCarryGhostObj != null && _dragCarryGhostObj.activeSelf) _dragCarryGhostObj.SetActive(false);
+                    for (int i = 0; i < _magneticTetherSegments.Length; i++)
+                    {
+                        if (_magneticTetherSegments[i] != null && _magneticTetherSegments[i].gameObject.activeSelf)
+                            _magneticTetherSegments[i].gameObject.SetActive(false);
+                    }
+                }
+            }
+
+            return false;
+        }
+
         private void RebuildCadFeatureSubParts(Transform parentContainer, List<GameObject> partList, float wM, float dM, float hM, Color matColor)
         {
             for (int i = 0; i < partList.Count; i++)
@@ -1747,6 +2266,8 @@ namespace KineticCore.Runtime
                     ? $"GRASPED CAD ASSEMBLY ({totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")})\nDeliver to Drop Zone ->"
                     : $"1:1 CAD [{ActivePrimitiveShapeName} | {CadFeatureOpNames[CadFeatureOpIndex]} | {totalBodies}B]\n{widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g";
             }
+
+            UpdateInPlaceTwinAndFaceHandles(wMeters, dMeters, hMeters);
         }
 
         private void CreateVrHologramHud()
@@ -1878,6 +2399,13 @@ namespace KineticCore.Runtime
             if (_resetHoldTimer > 0f)
                 _resetHoldTimer = Mathf.Max(0f, _resetHoldTimer - Time.deltaTime);
 
+            if (_booleanCursorActiveTimer > 0f)
+            {
+                _booleanCursorActiveTimer = Mathf.Max(0f, _booleanCursorActiveTimer - Time.deltaTime);
+                if (_booleanCursorActiveTimer <= 0f && _liveBooleanCursorObj != null && _liveBooleanCursorObj.activeSelf)
+                    _liveBooleanCursorObj.SetActive(false);
+            }
+
             // Audit sweep animation when Deep Audit is clicked
             if (_auditSweepTimer > 0f && _theta != null && _theta.Length >= 3)
             {
@@ -1977,6 +2505,7 @@ namespace KineticCore.Runtime
 
             if (KInput.GetKeyDown(KeyCode.G)) SynthesizeFast();
             if (KInput.GetKeyDown(KeyCode.N)) SnapAddModularJointAndLink();
+            if (KInput.GetKeyDown(KeyCode.K)) CycleJointScrewAxis();
             if (KInput.GetKeyDown(KeyCode.T) || KInput.GetKeyDown(KeyCode.Alpha1)) CycleCadPrimitiveShape();
             if (KInput.GetKeyDown(KeyCode.B) || KInput.GetKeyDown(KeyCode.Alpha2)) StampNewCadBodyToAssembly();
             if (KInput.GetKeyDown(KeyCode.J) || KInput.GetKeyDown(KeyCode.Alpha3)) CycleCadBooleanMode();
@@ -2064,6 +2593,7 @@ namespace KineticCore.Runtime
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Deep Audit [H]")) SynthesizeDeep();
+            if (GUILayout.Button("Flip Screw S_i [K]")) CycleJointScrewAxis();
             if (GUILayout.Button(PuppetActive ? "Puppet: ON [P]" : "Puppet: OFF [P]")) TogglePuppet();
             if (GUILayout.Button(AutoOrbitTarget ? "Orbit: ON [O]" : "Orbit: OFF [O]")) ToggleAutoOrbit();
             if (GUILayout.Button("Reset [R]")) ResetPose();
@@ -2093,7 +2623,7 @@ namespace KineticCore.Runtime
 
             _vrHologramText.text =
                 $"KINETIC-CAD XR | SPATIAL FUSION 360 STUDIO ({ActivePrimitiveShapeName} | {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")} | {dofCount}-DoF)\n" +
-                $"[{s1}]Step1: Left-Hand Palette({ActivePrimitiveShapeName}/{ActivePatternModeName})  [{s2}]Step2: +Stamp/+Snap({dofCount}DoF)  [{s3}]Step3: Carve & Export\n" +
+                $"[{s1}]Step1: Drag +X/+Y/+Z Handles or Palette({ActivePrimitiveShapeName})  [{s2}]Step2: Carry & Snap({dofCount}DoF)  [{s3}]Step3: Carve & Export\n" +
                 $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | μ={CurrentManipulability:E2} {muSymbol} | {cbfStatus}\n" +
                 $"{AgentRecommendation}\n" +
                 $"{StatusMessage}";
@@ -2140,7 +2670,7 @@ namespace KineticCore.Runtime
                     $"Primitive: {ActivePrimitiveShapeName} ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm) | {CadFeatureOpNames[CadFeatureOpIndex]}\n" +
                     $"Material: {CadMaterialNames[CadMaterialIndex]} | Vol={CadPartVolumeCm3:F1}cm³ | Mass={CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m print)\n" +
                     $"Mechanism: {topoLabel} ({dofCount}-DoF {specTag}) | Reach={(l1 + l2) * 1000:F0}mm | Peak τ={tauPeak:F2}Nm\n" +
-                    $"Left-Hand Dock: Poke [SHAPE / +STAMP / BOOLEAN / PATTERN / EXTRUDE / MATERIAL]";
+                    $"Direct 3D CAD: Drag +X/+Y/+Z Handles | Aim Boolean | Carry to Snap Ring | Poke Joint Pins S_i";
             }
         }
 
@@ -2350,6 +2880,7 @@ namespace KineticCore.Runtime
             _jointPivots = new Transform[n];
             _linkRenderers = new Renderer[n];
             _pinRenderers = new Renderer[n];
+            _pinTransforms = new Transform[n];
 
             for (int i = 0; i < n; i++)
             {
@@ -2360,8 +2891,8 @@ namespace KineticCore.Runtime
 
                 bool isPrismatic = string.Equals(j.jointType, "prismatic", StringComparison.OrdinalIgnoreCase);
                 GameObject pin = GameObject.CreatePrimitive(isPrismatic ? PrimitiveType.Cube : PrimitiveType.Cylinder);
-                pin.name = isPrismatic ? "PrismaticSliderRail" : "ScrewAxisPin";
-                Destroy(pin.GetComponent<Collider>());
+                pin.name = $"ScrewAxisPin_{i}";
+                // Keep Collider enabled so VR fingertip pokes and Desktop mouse clicks can flip Screw Axis S_i!
                 pin.transform.SetParent(pivot.transform, false);
                 pin.transform.localPosition = new Vector3((float)j.originX, (float)j.originY, (float)j.originZ);
                 Vector3 axisDir = new Vector3((float)j.axisX, (float)j.axisY, (float)j.axisZ).normalized;
@@ -2371,6 +2902,7 @@ namespace KineticCore.Runtime
                     ? new Vector3(0.016f, 0.042f, 0.016f)
                     : new Vector3(0.020f, 0.024f, 0.020f);
                 _pinRenderers[i] = pin.GetComponent<Renderer>();
+                _pinTransforms[i] = pin.transform;
                 SetColorSafe(_pinRenderers[i], isPrismatic ? new Color(1.0f, 0.80f, 0.15f) : new Color(0.0f, 0.95f, 1.0f));
             }
 
@@ -2383,12 +2915,31 @@ namespace KineticCore.Runtime
                 int pivotIndex = System.Math.Min(n - 1, k - 1 + offset);
                 if (pivotIndex < 0) break;
                 LinkSpec lk = spec.links[k];
-                GameObject box = GameObject.CreatePrimitive(PrimitiveType.Cube);
+
+                // For snapped modules (pivotIndex >= 3), render with the user's sculpted primitive shape if available!
+                PrimitiveType linkPrim = PrimitiveType.Cube;
+                int snappedIdx = pivotIndex - 3;
+                if (snappedIdx >= 0 && snappedIdx < _snappedModuleCustomSpecs.Count && _snappedModuleCustomSpecs[snappedIdx] != null)
+                {
+                    int sh = _snappedModuleCustomSpecs[snappedIdx].primitiveShape;
+                    if (sh == 1 || sh == 3 || sh == 4) linkPrim = PrimitiveType.Cylinder;
+                    else if (sh == 2) linkPrim = PrimitiveType.Sphere;
+                }
+
+                GameObject box = GameObject.CreatePrimitive(linkPrim);
                 box.name = lk.name;
                 Destroy(box.GetComponent<Collider>());
                 box.transform.SetParent(_jointPivots[pivotIndex], false);
                 box.transform.localPosition = new Vector3((float)lk.centerX, (float)lk.centerY, (float)lk.centerZ);
-                box.transform.localScale = new Vector3((float)lk.lengthM, (float)lk.heightM, (float)lk.widthM);
+                if (linkPrim == PrimitiveType.Cylinder)
+                {
+                    box.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+                    box.transform.localScale = new Vector3((float)lk.heightM, (float)(lk.lengthM * 0.5), (float)lk.widthM);
+                }
+                else
+                {
+                    box.transform.localScale = new Vector3((float)lk.lengthM, (float)lk.heightM, (float)lk.widthM);
+                }
                 Renderer r = box.GetComponent<Renderer>();
                 if (_linkRenderers[pivotIndex] == null) _linkRenderers[pivotIndex] = r;
                 SetColorSafe(r, HealthyCyan);
@@ -2474,6 +3025,27 @@ namespace KineticCore.Runtime
                     Color basePinCol = isPris ? new Color(1.0f, 0.82f, 0.15f) : new Color(0.0f, 0.95f, 1.0f);
                     Color pinCol = Color.Lerp(new Color(1.0f, 0.35f, 0.15f), basePinCol, limitSafety);
                     SetColorSafe(_pinRenderers[i], pinCol);
+                }
+            }
+
+            if (_pinPokeCooldown > 0f)
+                _pinPokeCooldown = Mathf.Max(0f, _pinPokeCooldown - Time.deltaTime);
+
+            // Direct Screw-Axis Joint Pin Inspector: poke any cyan/gold joint pin with Left Index Finger to flip S_i axis/type!
+            if (!IsFlatEditorMode && _pinPokeCooldown <= 0f && _pinTransforms != null)
+            {
+                if (_cachedTipReader == null) _cachedTipReader = FindAnyObjectByType<HandFingertipReader>();
+                if (_cachedTipReader != null && _cachedTipReader.LeftPointingOnly)
+                {
+                    for (int i = 0; i < _pinTransforms.Length; i++)
+                    {
+                        if (_pinTransforms[i] != null && Vector3.Distance(_cachedTipReader.LeftWorld, _pinTransforms[i].position) < 0.030f)
+                        {
+                            _pinPokeCooldown = 0.90f;
+                            CycleJointScrewAxis(i);
+                            break;
+                        }
+                    }
                 }
             }
 
