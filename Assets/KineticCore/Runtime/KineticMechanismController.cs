@@ -30,6 +30,7 @@ namespace KineticCore.Runtime
         public string UserIntentPrompt = "3-DoF articulated inspection and gripper arm";
 
         [Header("Interactive Controls")]
+        public bool PureCadStudioMode = true;
         public double ManualTestWidthMm = 70.0;
         public bool PuppetActive = true;
         public bool AutoOrbitTarget = true;
@@ -137,22 +138,22 @@ namespace KineticCore.Runtime
         };
         private static readonly string[] CadBooleanModeNames =
         {
-            "JOIN (Union)",
-            "CUT (Subtract)",
-            "INTERSECT"
+            "Join (Add Solid)",
+            "Cut (Hole / Subtract)",
+            "Intersect"
         };
         private static readonly string[] CadPatternModeNames =
         {
-            "1x Single",
-            "3x Linear Array",
-            "6x Circular Array"
+            "Single (1x)",
+            "Linear Pattern (3x)",
+            "Circular Pattern (6x)"
         };
         private static readonly string[] CadFeatureOpNames =
         {
             "Solid Extrude",
-            "Shell 2.5mm Hollow",
+            "Shell (2.5mm Hollow)",
             "Chamfer + M4 Bosses",
-            "L-Bracket Mount"
+            "L-Bracket Ribbed"
         };
         private static readonly string[] CadMaterialNames =
         {
@@ -225,7 +226,7 @@ namespace KineticCore.Runtime
         public int SweptSampleCount { get; private set; } = 0;
         public int CarvedVoxelCount { get; private set; } = 0;
         public int ClashedVoxelCount { get; private set; } = 0;
-        public string AgentRecommendation { get; private set; } = "AGENTIC CO-PILOT: Sweep arm through housing bay to map W_i envelope";
+        public string AgentRecommendation { get; private set; } = "FUSION 360 TIP: Drag +X / +Y / +Z handles to Extrude, or poke Left-Hand Palette buttons";
         public int CareerDeliveries { get; private set; } = 0;
         public int CareerHousingsCarved { get; private set; } = 0;
         public int CareerUrdfExports { get; private set; } = 0;
@@ -270,7 +271,7 @@ namespace KineticCore.Runtime
         private float _jawCloseFactor = 0f;
         private float _graspCooldownTimer = 0f;
         private float _dropZoneFlashTimer = 0f;
-        private Vector3 _workpieceHomeLocalPos = new Vector3(-0.12f, 0.008f, 0.04f);
+        private Vector3 _workpieceHomeLocalPos = new Vector3(0.05f, 0.008f, 0.01f);
         private Vector3 _dropZoneLocalPos = new Vector3(0.16f, 0.001f, 0.04f);
         private float _lastReachMeters = 0.25f;
         private Transform[] _reachEnvelopeSegments;
@@ -364,8 +365,8 @@ namespace KineticCore.Runtime
             }
 
             StatusMessage = IsFlatEditorMode
-                ? "Click 3D Desk Buttons or LMB-drag in scene | WASD/QE move | RMB orbit"
-                : "HANDS-FIRST: Point Right Index to puppet | Point Both to caliper-measure | Poke or Gaze+Pinch buttons";
+                ? "FUSION 360 STUDIO: Drag +X / +Y / +Z handles or click 3D CAD buttons | RMB orbit"
+                : "FUSION 360 STUDIO: Drag +X / +Y / +Z handles to Extrude | Point Both Index Tips to measure | Poke buttons";
 
             WriteDiagnosticState("Start completed");
         }
@@ -616,7 +617,7 @@ namespace KineticCore.Runtime
             PuppetActive = true;
             _resetHoldTimer = 0.8f;
             ResetPayloadHousingAndEnvelope();
-            StatusMessage = "RESET POSE -> Calibrated Desk, Restored Housing Block & Home [0.25, 0.45, -0.65] rad";
+            StatusMessage = "CENTER DESK -> Centered 3D CAD Workbench in front of your headset";
             WriteDiagnosticState("ResetPose");
         }
 
@@ -651,7 +652,7 @@ namespace KineticCore.Runtime
             ManualTestWidthMm = System.Math.Max(20.0, System.Math.Min(250.0, ManualTestWidthMm + deltaMm));
             SpatialTactileAudio.Instance?.PlayCaliperTick();
             SynthesizeAndSpawnSync(ManualTestWidthMm);
-            StatusMessage = $"MICROGESTURE THUMB-SWIPE: Scrubbed dimension to {ManualTestWidthMm:F0} mm";
+            StatusMessage = $"EXTRUDE WIDTH -> Resized Width to {ManualTestWidthMm:F0} mm ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm)";
             WriteDiagnosticState("ScrubDimensionMm");
         }
 
@@ -848,7 +849,7 @@ namespace KineticCore.Runtime
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
-            StatusMessage = $"LEFT-HAND PALETTE -> Primitive: [{ActivePrimitiveShapeName}] ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm)";
+            StatusMessage = $"CREATE SHAPE -> [{ActivePrimitiveShapeName}] ({ManualTestWidthMm:F0} x {CapturedDepthMm:F0} x {CapturedHeightMm:F0} mm)";
             WriteDiagnosticState("CycleCadPrimitiveShape");
         }
 
@@ -861,18 +862,18 @@ namespace KineticCore.Runtime
                 _hasAimedBooleanCursor = false;
                 SpatialTactileAudio.Instance?.PlayCaliperTick();
                 UpdateSampleWorkpieceVisual(ManualTestWidthMm);
-                StatusMessage = "MULTI-BODY CAD TREE -> Cleared stamped sub-bodies (Reset to 1 Primary Solid)";
+                StatusMessage = "CAD BODIES -> Cleared extra bodies (Reset to 1 Base Body)";
                 WriteDiagnosticState("ClearStampedCadBodies");
                 return;
             }
 
             int idx = _stampedCadBodies.Count;
             // Coaxially stack or radially mate each newly stamped primitive onto the parametric CAD assembly,
-            // OR use the live 3D Boolean CSG cursor position aimed by the user's fingertip!
+            // OR use the live 3D Combine cursor position aimed by the user's fingertip!
             double[] offX = { 0.0,  22.0, -22.0,  0.0,  18.0, -18.0 };
             double[] offZ = { 0.0,   0.0,   0.0, 20.0, -18.0,  18.0 };
             double[] offY = { CapturedHeightMm * 0.55, 8.0, 8.0, 10.0, 14.0, 14.0 };
-            double scale = (CadBooleanModeIndex == 1) ? 0.52 : 0.64; // Boolean Cut creates precision negative bore/slot
+            double scale = (CadBooleanModeIndex == 1) ? 0.52 : 0.64; // Cut Hole creates precision negative bore/slot
 
             double targetOffX = _hasAimedBooleanCursor ? _aimedBooleanOffsetMm.x : offX[idx % offX.Length];
             double targetOffY = _hasAimedBooleanCursor ? _aimedBooleanOffsetMm.y : offY[idx % offY.Length];
@@ -901,8 +902,8 @@ namespace KineticCore.Runtime
             if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
             StatusMessage = usedAimedCursor
-                ? $"STAMPED BODY #{_stampedCadBodies.Count + 1} @ ({targetOffX:F0},{targetOffY:F0},{targetOffZ:F0})mm -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName})"
-                : $"STAMPED BODY #{_stampedCadBodies.Count + 1} -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName} | {ActivePatternModeName})";
+                ? $"COMBINE BODY #{_stampedCadBodies.Count + 1} @ ({targetOffX:F0},{targetOffY:F0},{targetOffZ:F0})mm -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName})"
+                : $"COMBINE BODY #{_stampedCadBodies.Count + 1} -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName} | {ActivePatternModeName})";
             WriteDiagnosticState("StampNewCadBodyToAssembly");
         }
 
@@ -912,7 +913,7 @@ namespace KineticCore.Runtime
             CadBooleanModeIndex = (CadBooleanModeIndex + 1) % CadBooleanModeNames.Length;
             SpatialTactileAudio.Instance?.PlayPokeClick();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
-            StatusMessage = $"BOOLEAN CSG MODE -> [{ActiveBooleanModeName}] (Hover finger on CAD part to aim 3D cursor, then [+STAMP BODY])";
+            StatusMessage = $"COMBINE MODE -> [{ActiveBooleanModeName}] (Touch 3D model to aim position, then poke [+ADD / CUT BODY])";
             WriteDiagnosticState("CycleCadBooleanMode");
         }
 
@@ -924,7 +925,7 @@ namespace KineticCore.Runtime
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
-            StatusMessage = $"FUSION PATTERN ARRAY -> [{ActivePatternModeName}] ({ActivePrimitiveShapeName})";
+            StatusMessage = $"PATTERN -> [{ActivePatternModeName}] ({ActivePrimitiveShapeName})";
             WriteDiagnosticState("CycleCadPatternArray");
         }
 
@@ -955,7 +956,7 @@ namespace KineticCore.Runtime
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
-            StatusMessage = $"PUSH/PULL EXTRUDE -> {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | Vol={CadPartVolumeCm3:F1}cm³ ({CadPartMassGrams:F1}g)";
+            StatusMessage = $"EXTRUDE / PULL -> {ManualTestWidthMm:F0} x {CapturedDepthMm:F0} x {CapturedHeightMm:F0} mm | Vol={CadPartVolumeCm3:F1}cm³ ({CadPartMassGrams:F1}g)";
             WriteDiagnosticState("CycleDirectPushPullExtrude");
         }
 
@@ -967,7 +968,7 @@ namespace KineticCore.Runtime
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
-            StatusMessage = $"FUSION CAD FEATURE -> [{CadFeatureOpNames[CadFeatureOpIndex]}] ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g)";
+            StatusMessage = $"MODIFY: SHELL / CHAMFER -> [{CadFeatureOpNames[CadFeatureOpIndex]}] ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g)";
             WriteDiagnosticState("CycleCadFeatureOp");
         }
 
@@ -979,7 +980,7 @@ namespace KineticCore.Runtime
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
-            StatusMessage = $"CAD MATERIAL -> {CadMaterialNames[CadMaterialIndex]} | Mass={CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m print)";
+            StatusMessage = $"PHYSICAL MATERIAL -> {CadMaterialNames[CadMaterialIndex]} | Mass={CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m 3D print)";
             WriteDiagnosticState("CycleCadMaterial");
         }
 
@@ -1312,6 +1313,12 @@ namespace KineticCore.Runtime
                 _dropZoneLocalPos + new Vector3(0f, 0.025f, 0f), Quaternion.Euler(35f, 0f, 0f),
                 0.0015f, 32, new Color(0.35f, 1.0f, 0.65f), "DROP ZONE (Lv1)\nGrasps: 0 | ★★★");
 
+            if (PureCadStudioMode)
+            {
+                dz.SetActive(false);
+                _dropZoneLabel.gameObject.SetActive(false);
+            }
+
             CreateReachEnvelopeRing();
             CreateObjectiveBeacon();
             CreateTrajectoryTrail();
@@ -1399,6 +1406,13 @@ namespace KineticCore.Runtime
                 _sweptGhostRenderers[i] = cap.GetComponent<Renderer>();
                 SetColorSafe(_sweptGhostRenderers[i], new Color(0.85f, 0.25f, 0.95f));
             }
+
+            if (PureCadStudioMode)
+            {
+                housingRoot.SetActive(false);
+                _housingLabel.gameObject.SetActive(false);
+                ghostRoot.SetActive(false);
+            }
         }
 
         private static float DistancePointToSegment(Vector3 p, Vector3 a, Vector3 b)
@@ -1412,6 +1426,7 @@ namespace KineticCore.Runtime
 
         private void UpdateSweptVolumeAndCbf()
         {
+            if (PureCadStudioMode) return;
             if (_theta == null || _theta.Length < 3 || _eeMarker == null || DeskWorkspaceOrigin == null) return;
 
             // Sample swept-volume W_i whenever joint configuration changes by >= 5 degrees (0.087 rad)
@@ -1462,6 +1477,11 @@ namespace KineticCore.Runtime
 
         private void RecomputeControlBarrierMarginHx(Vector3? shoulderLocalOpt = null, Vector3? elbowLocalOpt = null, Vector3? eeLocalOpt = null)
         {
+            if (PureCadStudioMode)
+            {
+                AgentRecommendation = $"FUSION 360 TIP: Drag +X / +Y / +Z handles to Extrude | Touch model + poke [+ADD / CUT BODY] ({ActiveBooleanModeName})";
+                return;
+            }
             if (_housingVoxelTransforms == null) return;
 
             Vector3 shoulderLocal = shoulderLocalOpt ?? ((_jointPivots != null && _jointPivots.Length > 0) ? _jointPivots[0].localPosition : new Vector3(0f, 0.05f, 0f));
@@ -1548,6 +1568,7 @@ namespace KineticCore.Runtime
             _objectiveBeaconRing = beacon.transform;
             _objectiveBeaconRenderer = beacon.GetComponent<Renderer>();
             SetColorSafe(_objectiveBeaconRenderer, new Color(0.20f, 0.95f, 1.0f));
+            if (PureCadStudioMode) beacon.SetActive(false);
         }
 
         private void CreateTrajectoryTrail()
@@ -1578,10 +1599,12 @@ namespace KineticCore.Runtime
                 _trailColors[i] = HealthyCyan;
                 SetColorSafe(_trailRenderers[i], HealthyCyan);
             }
+            if (PureCadStudioMode) trailRoot.SetActive(false);
         }
 
         private void UpdateTrajectoryTrail(Color currentHealthColor)
         {
+            if (PureCadStudioMode) return;
             if (_trailMarkers == null || _eeMarker == null || DeskWorkspaceOrigin == null) return;
             _trailSampleTimer += Time.deltaTime;
             if (_trailSampleTimer < 0.035f) return;
@@ -1625,6 +1648,7 @@ namespace KineticCore.Runtime
                 SetColorSafe(_reachEnvelopeRenderers[i], new Color(0.12f, 0.65f, 0.82f));
                 _reachEnvelopeSegments[i] = seg.transform;
             }
+            if (PureCadStudioMode) ringRoot.SetActive(false);
             UpdateReachEnvelopeAndStationPositions(0.25f);
         }
 
@@ -1632,6 +1656,20 @@ namespace KineticCore.Runtime
         {
             _lastReachMeters = Mathf.Clamp(reachMeters, 0.11f, 0.34f);
             float clampedReach = _lastReachMeters;
+
+            if (PureCadStudioMode)
+            {
+                // Keep the 3D CAD Model centered right in the middle of the desk workbench!
+                _workpieceHomeLocalPos = new Vector3(0.05f, 0.008f, 0.01f);
+                if (_sampleWorkpiece != null)
+                {
+                    float hM = Mathf.Clamp((float)(CapturedHeightMm * 0.001), 0.012f, 0.085f);
+                    _sampleWorkpiece.localPosition = new Vector3(_workpieceHomeLocalPos.x, hM * 0.5f, _workpieceHomeLocalPos.z);
+                    if (_workpieceLabel != null)
+                        _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, hM + 0.022f, 0f);
+                }
+                return;
+            }
 
             // Dynamically place Pickup Workpiece and Drop Zone well inside (62% of) the current mechanism's reach
             // and vary their spatial angles/depths across the 5 Robotics Challenge levels!
@@ -1684,7 +1722,7 @@ namespace KineticCore.Runtime
                 "HandInspect_SpecLabel", _handInspectRoot.transform,
                 new Vector3(0f, 0.052f, 0f), Quaternion.identity,
                 0.00145f, 32, new Color(0.30f, 1.0f, 0.75f),
-                "1:1 PRINT PREVIEW IN HAND\nHold out Left Hand to inspect before 3D printing");
+                "1:1 MODEL PREVIEW IN HAND\nHold out Left Hand to inspect before 3D printing");
 
             _handInspectRoot.SetActive(HandInspectActive);
         }
@@ -1714,18 +1752,21 @@ namespace KineticCore.Runtime
                 "InPlaceTwin_Label", _inPlaceTwinRoot.transform,
                 new Vector3(0f, 0.042f, 0f), Quaternion.Euler(30f, 0f, 0f),
                 0.0013f, 28, new Color(0.30f, 1.0f, 0.95f),
-                "IN-PLACE PASSTHROUGH TWIN\nPoint Both Index Tips on Desk Object to Lock 1:1");
+                "1:1 MEASURED OBJECT TWIN\nPoint Both Index Tips on Real Object to Capture");
 
-            // 2. Direct 3D Face-Pull Gizmo Handles (+X Width, +Y Height, +Z Depth) on the CAD Solid
+            if (PureCadStudioMode)
+                _inPlaceTwinRoot.SetActive(false);
+
+            // 2. Direct 3D Extrude / Pull Gizmo Handles (+X Width, +Y Height, +Z Depth) on the CAD Solid
             string[] handleNames = { "FacePullHandle_X_Width", "FacePullHandle_Y_Height", "FacePullHandle_Z_Depth" };
-            string[] handleTags = { "+X W", "+Y H", "+Z D" };
+            string[] handleTags = { "+X WIDTH", "+Y HEIGHT", "+Z DEPTH" };
             for (int a = 0; a < 3; a++)
             {
                 GameObject hGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 hGo.name = handleNames[a];
                 // Keep Collider enabled so Desktop Mouse Raycast and VR Fingertip distance checks both work!
                 hGo.transform.SetParent(DeskWorkspaceOrigin, false);
-                hGo.transform.localScale = Vector3.one * 0.017f;
+                hGo.transform.localScale = Vector3.one * 0.018f;
                 Renderer hr = hGo.GetComponent<Renderer>();
                 SetColorSafe(hr, _facePullBaseColors[a]);
                 _facePullHandles[a] = hGo.transform;
@@ -1733,11 +1774,11 @@ namespace KineticCore.Runtime
 
                 WorldTextFactory.Create(
                     $"FacePullLabel_{a}", hGo.transform,
-                    new Vector3(0f, 0.78f, 0f), Quaternion.Euler(25f, 0f, 0f),
-                    0.075f, 28, _facePullBaseColors[a], handleTags[a]);
+                    new Vector3(0f, 0.82f, 0f), Quaternion.Euler(20f, 0f, 0f),
+                    0.068f, 28, _facePullBaseColors[a], handleTags[a]);
             }
 
-            // 3. Interactive 3D Boolean CSG Positioning Cursor (snaps to 2mm CAD grid inside workpiece before stamping)
+            // 3. Interactive 3D Combine Positioning Cursor (snaps to 2mm CAD grid inside model before adding/cutting)
             _liveBooleanCursorObj = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             _liveBooleanCursorObj.name = "LiveBoolean_3D_Cursor";
             Destroy(_liveBooleanCursorObj.GetComponent<Collider>());
@@ -1747,7 +1788,7 @@ namespace KineticCore.Runtime
             SetColorSafe(_liveBooleanCursorRenderer, new Color(1.0f, 0.18f, 0.48f));
             _liveBooleanCursorObj.SetActive(false);
 
-            // 4. Drag-Carry Module Ghost & 6-Segment Glowing Magnetic Snap Tether to the Robot Arm
+            // 4. Drag-Carry Shape Ghost & 6-Segment Glowing Snap Line to the 3D CAD Model
             _dragCarryGhostObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
             _dragCarryGhostObj.name = "DragCarry_ModuleGhost";
             Destroy(_dragCarryGhostObj.GetComponent<Collider>());
@@ -1774,16 +1815,16 @@ namespace KineticCore.Runtime
 
         private void UpdateInPlaceTwinAndFaceHandles(float wMeters, float dMeters, float hMeters)
         {
-            // Position the 3 Direct Face-Pull Handles (+X, +Y, +Z) on the outer faces of _sampleWorkpiece
+            // Position the 3 Direct Extrude Handles (+X Width, +Y Height, +Z Depth) on the outer faces of _sampleWorkpiece
             if (_sampleWorkpiece != null && _facePullHandles[0] != null)
             {
                 bool showHandles = !_isHoldingWorkpiece;
                 Vector3 wpCenter = _sampleWorkpiece.localPosition;
                 Vector3[] faceOffsets =
                 {
-                    new Vector3(wMeters * 0.5f + 0.012f, 0f, 0f), // +X Width face
-                    new Vector3(0f, hMeters * 0.5f + 0.012f, 0f), // +Y Top/Height face
-                    new Vector3(0f, 0f, dMeters * 0.5f + 0.012f)  // +Z Depth face
+                    new Vector3(wMeters * 0.5f + 0.014f, 0f, 0f), // +X Width face
+                    new Vector3(0f, hMeters * 0.5f + 0.014f, 0f), // +Y Top/Height face
+                    new Vector3(0f, 0f, dMeters * 0.5f + 0.014f)  // +Z Depth face
                 };
                 for (int a = 0; a < 3; a++)
                 {
@@ -1791,7 +1832,7 @@ namespace KineticCore.Runtime
                     _facePullHandles[a].gameObject.SetActive(showHandles);
                     _facePullHandles[a].localPosition = wpCenter + faceOffsets[a];
                     bool isPulled = (_activeFacePullAxis == a);
-                    _facePullHandles[a].localScale = Vector3.one * (isPulled ? 0.022f : 0.0165f);
+                    _facePullHandles[a].localScale = Vector3.one * (isPulled ? 0.023f : 0.018f);
                     SetColorSafe(_facePullRenderers[a], isPulled ? Color.white : _facePullBaseColors[a]);
                 }
             }
@@ -1799,6 +1840,9 @@ namespace KineticCore.Runtime
             // Update the 12 wireframe edge rails of the In-Place Passthrough Bounding Twin
             if (_inPlaceTwinRoot != null && _inPlaceTwinEdges[0] != null)
             {
+                if (PureCadStudioMode)
+                    _inPlaceTwinRoot.SetActive(_hasInPlaceTwinCapture);
+
                 float hx = wMeters * 0.5f;
                 float hy = hMeters * 0.5f;
                 float hz = dMeters * 0.5f;
@@ -1825,8 +1869,8 @@ namespace KineticCore.Runtime
                 {
                     _inPlaceTwinLabel.transform.localPosition = new Vector3(0f, hy + 0.018f, 0f);
                     _inPlaceTwinLabel.text = _hasInPlaceTwinCapture
-                        ? $"1:1 PASSTHROUGH TWIN [LOCKED]\n{ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm (Drag +X/+Y/+Z Handles)"
-                        : $"IN-PLACE PASSTHROUGH TWIN ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm)\nPoint Both Index Tips on Real Object to Capture";
+                        ? $"1:1 MEASURED OBJECT TWIN [LOCKED]\n{ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm"
+                        : $"1:1 MEASURED OBJECT TWIN ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm)";
                 }
             }
         }
@@ -1864,7 +1908,7 @@ namespace KineticCore.Runtime
             Vector3 localPtr = DeskWorkspaceOrigin.InverseTransformPoint(pointerWorldPos);
             Vector3 wpCenter = _sampleWorkpiece.localPosition;
 
-            // 1. Direct 3D Face-Pull Gizmo Extrusion (+X Width, +Y Height, +Z Depth)
+            // 1. Direct 3D Extrude / Pull Handles (+X Width, +Y Height, +Z Depth)
             if (!_isHoldingWorkpiece)
             {
                 if (forcedFaceAxis >= 0 && forcedFaceAxis <= 2)
@@ -1875,7 +1919,7 @@ namespace KineticCore.Runtime
                 {
                     for (int a = 0; a < 3; a++)
                     {
-                        if (_facePullHandles[a] != null && Vector3.Distance(pointerWorldPos, _facePullHandles[a].position) < 0.034f)
+                        if (_facePullHandles[a] != null && Vector3.Distance(pointerWorldPos, _facePullHandles[a].position) < 0.036f)
                         {
                             _activeFacePullAxis = a;
                             SpatialTactileAudio.Instance?.PlayPokeClick(_facePullHandles[a].position);
@@ -1926,14 +1970,14 @@ namespace KineticCore.Runtime
                     if (SnappedModuleCount >= 1)
                         SynthesizeAndSpawnSync(ManualTestWidthMm);
 
-                    StatusMessage = $"3D FACE HANDLE DRAG [{axisTag}] -> {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m)";
+                    StatusMessage = $"EXTRUDE HANDLE DRAG [{axisTag}] -> {ManualTestWidthMm:F0} x {CapturedDepthMm:F0} x {CapturedHeightMm:F0} mm | {CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m)";
                     return true;
                 }
             }
 
-            // 2. Interactive 3D Boolean CSG Positioning Cursor (when hovering inside/over the Left Station CAD Solid)
+            // 2. Interactive 3D Combine Positioning Cursor (when hovering inside/over the 3D CAD Model)
             float distToWpCenter = Vector3.Distance(localPtr, wpCenter);
-            if (!_isHoldingWorkpiece && distToWpCenter < 0.088f && (CadBooleanModeIndex == 1 || CadBooleanModeIndex == 2 || aimBooleanRequested))
+            if (!_isHoldingWorkpiece && distToWpCenter < 0.095f && (PureCadStudioMode || CadBooleanModeIndex == 1 || CadBooleanModeIndex == 2 || aimBooleanRequested))
             {
                 float maxX = Mathf.Max(8f, (float)ManualTestWidthMm * 0.45f);
                 float maxY = Mathf.Max(6f, (float)CapturedHeightMm * 0.55f);
@@ -1961,21 +2005,22 @@ namespace KineticCore.Runtime
                     SetColorSafe(_liveBooleanCursorRenderer, curCol);
                 }
 
-                StatusMessage = $"3D BOOLEAN AIM [{ActiveBooleanModeName}] @ ({offXMm:F0},{offYMm:F0},{offZMm:F0})mm -> Poke [+STAMP BODY] to commit!";
+                StatusMessage = $"3D COMBINE AIM [{ActiveBooleanModeName}] @ ({offXMm:F0},{offYMm:F0},{offZMm:F0})mm -> Poke [+ADD / CUT BODY] to apply!";
             }
 
-            // 3. True Drag-Carry-and-Snap from Left-Hand Palette 3D Preview (or CAD Workbench) to the Robot Arm's Distal Snap Ring
-            if (_carrySnapCooldown <= 0f && _distalSnapPortRing != null)
+            // 3. Drag-and-Snap Shape from the Left-Hand Palette 3D Preview directly onto the Center 3D CAD Model!
+            Transform snapTargetTransform = PureCadStudioMode ? _sampleWorkpiece : _distalSnapPortRing;
+            if (_carrySnapCooldown <= 0f && snapTargetTransform != null)
             {
                 if (!_isCarryingSnapModule && leftPalettePreviewPos.HasValue &&
-                    Vector3.Distance(pointerWorldPos, leftPalettePreviewPos.Value) < 0.048f)
+                    Vector3.Distance(pointerWorldPos, leftPalettePreviewPos.Value) < 0.052f)
                 {
                     _isCarryingSnapModule = true;
                     SpatialTactileAudio.Instance?.PlayPokeClick(leftPalettePreviewPos.Value);
                 }
 
-                float distToSnapPort = Vector3.Distance(pointerWorldPos, _distalSnapPortRing.position);
-                bool showTether = _isCarryingSnapModule || (distToSnapPort < 0.125f && distToSnapPort > 0.015f);
+                float distToSnapPort = Vector3.Distance(pointerWorldPos, snapTargetTransform.position);
+                bool showTether = _isCarryingSnapModule || (!PureCadStudioMode && distToSnapPort < 0.125f && distToSnapPort > 0.015f);
 
                 if (showTether)
                 {
@@ -1995,25 +2040,30 @@ namespace KineticCore.Runtime
                         if (_magneticTetherSegments[i] == null) continue;
                         _magneticTetherSegments[i].gameObject.SetActive(true);
                         float t = (i + 1f) / (_magneticTetherSegments.Length + 1f);
-                        _magneticTetherSegments[i].position = Vector3.Lerp(pointerWorldPos, _distalSnapPortRing.position, t);
+                        _magneticTetherSegments[i].position = Vector3.Lerp(pointerWorldPos, snapTargetTransform.position, t);
                         float pulse = 0.0065f + 0.0025f * Mathf.Sin(Time.time * 10f - i * 0.7f);
                         _magneticTetherSegments[i].localScale = Vector3.one * pulse;
                         SetColorSafe(_magneticTetherRenderers[i], Color.Lerp(new Color(0.20f, 0.95f, 1.0f), new Color(1.0f, 0.82f, 0.15f), t));
                     }
 
-                    if (distToSnapPort < 0.042f)
+                    float snapThreshold = PureCadStudioMode ? 0.075f : 0.042f;
+                    if (distToSnapPort < snapThreshold)
                     {
                         _isCarryingSnapModule = false;
-                        _carrySnapCooldown = 1.35f;
+                        _carrySnapCooldown = 1.25f;
                         if (_dragCarryGhostObj != null) _dragCarryGhostObj.SetActive(false);
                         for (int i = 0; i < _magneticTetherSegments.Length; i++)
                             if (_magneticTetherSegments[i] != null) _magneticTetherSegments[i].gameObject.SetActive(false);
-                        SnapAddModularJointAndLink();
+
+                        if (PureCadStudioMode)
+                            StampNewCadBodyToAssembly();
+                        else
+                            SnapAddModularJointAndLink();
                         return true;
                     }
                     else if (_isCarryingSnapModule)
                     {
-                        StatusMessage = $"CARRYING [{ActivePrimitiveShapeName} {CadPartMassGrams:F0}g] -> Magnetic Tether ({distToSnapPort * 100f:F1}cm to Gold Snap Port)";
+                        StatusMessage = $"DRAGGING [{ActivePrimitiveShapeName}] -> Bring to Center 3D Model ({distToSnapPort * 100f:F1}cm) to {ActiveBooleanModeName}!";
                         return true;
                     }
                 }
@@ -2331,6 +2381,7 @@ namespace KineticCore.Runtime
             if (TargetTransform != null)
             {
                 _targetRenderer = TargetTransform.GetComponent<Renderer>();
+                if (PureCadStudioMode && _targetRenderer != null) _targetRenderer.enabled = false;
                 return TargetTransform;
             }
             if (DeskWorkspaceOrigin == null) return null;
@@ -2343,6 +2394,7 @@ namespace KineticCore.Runtime
             sphere.transform.localScale = Vector3.one * 0.028f;
             _targetRenderer = sphere.GetComponent<Renderer>();
             SetColorSafe(_targetRenderer, Color.red);
+            if (PureCadStudioMode && _targetRenderer != null) _targetRenderer.enabled = false;
             TargetTransform = sphere.transform;
             return TargetTransform;
         }
@@ -2545,13 +2597,12 @@ namespace KineticCore.Runtime
                 }
             }
 
-            int dofCount = CurrentChain != null ? CurrentChain.Joints.Length : 3;
             int totalBodies = 1 + _stampedCadBodies.Count;
-            GUI.Box(new Rect(12, 12, 565, 304), "");
-            GUILayout.BeginArea(new Rect(20, 18, 548, 292));
-            GUILayout.Label($"<b>KINETIC-CAD XR | SPATIAL FUSION 360 & MODULAR ROBOTICS STUDIO</b> ({dofCount}-DoF | {totalBodies} Bodies)");
-            GUILayout.Label($"Left-Hand CAD: [{ActivePrimitiveShapeName}] [{ActiveBooleanModeName}] [{ActivePatternModeName}] | {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm ({CadPartMassGrams:F1}g)");
-            GUILayout.Label($"{AgentRecommendation}");
+            GUI.Box(new Rect(12, 12, 565, 285), "");
+            GUILayout.BeginArea(new Rect(20, 18, 548, 273));
+            GUILayout.Label($"<b>KINETIC-CAD XR | INTERACTIVE 3D CAD STUDIO (FUSION 360 FOR QUEST 3)</b> ({totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")})");
+            GUILayout.Label($"Create: [{ActivePrimitiveShapeName}] | Combine: [{ActiveBooleanModeName}] | Pattern: [{ActivePatternModeName}] | {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm ({CadPartMassGrams:F1}g)");
+            GUILayout.Label($"FUSION 360 TIP: Drag +X / +Y / +Z handles on 3D Model to Extrude, or use Left-Hand Palette & Desk Toolbar");
             GUILayout.Label($"Status: {StatusMessage}");
 
             GUILayout.BeginHorizontal();
@@ -2571,32 +2622,22 @@ namespace KineticCore.Runtime
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button($"Shape: {ActivePrimitiveShapeName} [T]")) CycleCadPrimitiveShape();
-            if (GUILayout.Button($"+Stamp Body ({totalBodies}) [B]")) StampNewCadBodyToAssembly();
-            if (GUILayout.Button($"Bool: {ActiveBooleanModeName.Split(' ')[0]} [J]")) CycleCadBooleanMode();
-            if (GUILayout.Button($"Pat: {ActivePatternModeName} [L]")) CycleCadPatternArray();
+            if (GUILayout.Button($"Create: {ActivePrimitiveShapeName} [T]")) CycleCadPrimitiveShape();
+            if (GUILayout.Button($"+Add / Cut Body ({totalBodies}) [B]")) StampNewCadBodyToAssembly();
+            if (GUILayout.Button($"Combine: {ActiveBooleanModeName.Split(' ')[0]} [J]")) CycleCadBooleanMode();
+            if (GUILayout.Button($"Pattern: {ActivePatternModeName} [L]")) CycleCadPatternArray();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Push/Pull Extrude [X]")) CycleDirectPushPullExtrude();
-            if (GUILayout.Button($"+Snap Joint ({dofCount}DoF) [N]")) SnapAddModularJointAndLink();
-            if (GUILayout.Button($"Op: {CadFeatureOpNames[CadFeatureOpIndex]} [F]")) CycleCadFeatureOp();
-            if (GUILayout.Button($"Mat: {CadMaterialNames[CadMaterialIndex].Split(' ')[0]} [M]")) CycleCadMaterial();
+            if (GUILayout.Button("Extrude / Pull [X]")) CycleDirectPushPullExtrude();
+            if (GUILayout.Button($"Modify: {CadFeatureOpNames[CadFeatureOpIndex]} [F]")) CycleCadFeatureOp();
+            if (GUILayout.Button($"Material: {CadMaterialNames[CadMaterialIndex].Split(' ')[0]} [M]")) CycleCadMaterial();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Fast Synth [G]")) SynthesizeFast();
-            if (GUILayout.Button(HandInspectActive ? "1:1 In-Hand: ON [I]" : "Hold 1:1 Print [I]")) ToggleHandInspectMode();
-            if (GUILayout.Button("Ghost Carve [C]")) ExecuteGhostCarve();
-            if (GUILayout.Button("Export STL+OBJ+URDF [U]")) ExportUrdf();
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Deep Audit [H]")) SynthesizeDeep();
-            if (GUILayout.Button("Flip Screw S_i [K]")) CycleJointScrewAxis();
-            if (GUILayout.Button(PuppetActive ? "Puppet: ON [P]" : "Puppet: OFF [P]")) TogglePuppet();
-            if (GUILayout.Button(AutoOrbitTarget ? "Orbit: ON [O]" : "Orbit: OFF [O]")) ToggleAutoOrbit();
-            if (GUILayout.Button("Reset [R]")) ResetPose();
+            if (GUILayout.Button(HandInspectActive ? "Hold 1:1 Model: ON [I]" : "Hold 1:1 Model [I]")) ToggleHandInspectMode();
+            if (GUILayout.Button("Export .STL / .OBJ [U]")) ExportUrdf();
+            if (GUILayout.Button("Center Desk [R]")) ResetPose();
             GUILayout.EndHorizontal();
 
             GUILayout.EndArea();
@@ -2605,27 +2646,18 @@ namespace KineticCore.Runtime
 
         private void UpdateVrHologramText()
         {
-            if (_vrHologramText == null || _theta == null || _theta.Length < 3) return;
-            if (!AutoOrbitTarget && PuppetActive) _stepPuppetDone = true;
-
-            string specTag = LastSpecFromAi ? "[AI Spec ✓]" : "[PoE Parametric]";
+            if (_vrHologramText == null) return;
+            if (DirectPushPullActive || _stampedCadBodies.Count > 0) _stepPuppetDone = true;
             string s1 = _stepSynthDone ? "✓" : "1";
-            string s2 = (SweptSampleCount >= 4 || _stepPuppetDone || SnappedModuleCount > 0 || _stampedCadBodies.Count > 0) ? "✓" : "2";
-            string s3 = (IsHousingCarved || _stepAuditOrExportDone) ? "✓" : "3";
-            int dofCount = _theta.Length;
+            string s2 = _stepPuppetDone ? "✓" : "2";
+            string s3 = _stepAuditOrExportDone ? "✓" : "3";
             int totalBodies = 1 + _stampedCadBodies.Count;
 
-            double muRatio = ReferenceManipulability > 1e-6 ? (CurrentManipulability / ReferenceManipulability) : 1.0;
-            string muSymbol = muRatio > 0.65 ? "[▲ OPTIMAL]" : (muRatio > 0.38 ? "[◆ CAUTION]" : "[▼ SINGULARITY]");
-            string cbfStatus = CurrentBarrierHxMm >= 0.0
-                ? $"h(x)=+{CurrentBarrierHxMm:F1}mm >= 0 [✓ CBF SAFE]"
-                : $"h(x)={CurrentBarrierHxMm:F1}mm < 0 [■ {ClashedVoxelCount} VOX CLASH]";
-
             _vrHologramText.text =
-                $"KINETIC-CAD XR | SPATIAL FUSION 360 STUDIO ({ActivePrimitiveShapeName} | {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")} | {dofCount}-DoF)\n" +
-                $"[{s1}]Step1: Drag +X/+Y/+Z Handles or Palette({ActivePrimitiveShapeName})  [{s2}]Step2: Carry & Snap({dofCount}DoF)  [{s3}]Step3: Carve & Export\n" +
-                $"J1={_theta[0] * Mathf.Rad2Deg:F1}°  J2={_theta[1] * Mathf.Rad2Deg:F1}°  J3={_theta[2] * Mathf.Rad2Deg:F1}° | μ={CurrentManipulability:E2} {muSymbol} | {cbfStatus}\n" +
-                $"{AgentRecommendation}\n" +
+                $"KINETIC-CAD XR | INTERACTIVE 3D CAD STUDIO (FUSION 360 FOR QUEST 3)\n" +
+                $"[{s1}]Create: [{ActivePrimitiveShapeName}]  |  [{s2}]Combine: [{ActiveBooleanModeName}] ({totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")})  |  [{s3}]Pattern: [{ActivePatternModeName}]\n" +
+                $"Extrude Dimensions: {ManualTestWidthMm:F0} mm (W) x {CapturedDepthMm:F0} mm (D) x {CapturedHeightMm:F0} mm (H)  |  Modify: {CadFeatureOpNames[CadFeatureOpIndex]}\n" +
+                $"Material: {CadMaterialNames[CadMaterialIndex]}  |  Volume: {CadPartVolumeCm3:F1} cm³  |  Mass: {CadPartMassGrams:F1} g (~{EstimatedPrintMinutes} min 3D Print)\n" +
                 $"{StatusMessage}";
 
             if (_urdfInspectorText != null && CurrentSpec != null)
@@ -2637,13 +2669,13 @@ namespace KineticCore.Runtime
                         _urdfInspectorTransform.rotation = Quaternion.LookRotation(toInsp.normalized, Vector3.up);
                 }
 
-                string rName = CurrentSpec.robotName ?? "kinetic_claw";
+                string rName = CurrentSpec.robotName ?? "kinetic_cad";
                 _urdfInspectorText.text =
-                    $"=== MULTI-BODY .STL / .OBJ + ROS 2 .URDF INSPECTOR ===\n" +
-                    $"Files: {rName}.urdf | {rName}_cad.stl | {rName}_cad.obj\n" +
-                    $"  CAD Tree: {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")} [{ActivePrimitiveShapeName} | {ActiveBooleanModeName} | {ActivePatternModeName}] ({CadPartMassGrams:F1}g)\n" +
-                    $"  Snapped Chain: {dofCount}-DoF (Rev+Pris) | Swept W_i: {SweptSampleCount} | Carved: -{CarvedVoxelCount} vox\n" +
-                    $"  {ChallengeTitles[Mathf.Clamp(CurrentChallengeLevel - 1, 0, ChallengeTitles.Length - 1)]} ({LastDeliveryStarRating}) | Career: {CareerDeliveries} Placed, {CareerUrdfExports} Exports";
+                    $"=== 3D PRINT (.STL / .OBJ) & CAD EXPORT INSPECTOR ===\n" +
+                    $"Export Files: {rName}_cad.stl  |  {rName}_cad.obj\n" +
+                    $"  CAD Bodies: {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")} [{ActivePrimitiveShapeName} | {ActiveBooleanModeName} | {ActivePatternModeName}]\n" +
+                    $"  Modify Feature: {CadFeatureOpNames[CadFeatureOpIndex]}  |  Slicer Est: {CadPartMassGrams:F1}g (~{EstimatedPrintMinutes} min)\n" +
+                    $"  Total Exports Saved: {CareerUrdfExports}  |  Poke [EXPORT .STL / .OBJ] to save 3D mesh";
             }
 
             if (_specSheetText != null && CurrentSpec != null)
@@ -2655,22 +2687,12 @@ namespace KineticCore.Runtime
                         _specSheetTransform.rotation = Quaternion.LookRotation(toSpec.normalized, Vector3.up);
                 }
 
-                double mTotal = 0.0;
-                if (CurrentSpec.links != null)
-                    for (int i = 0; i < CurrentSpec.links.Length; i++)
-                        mTotal += CurrentSpec.links[i].massKg;
-                double l1 = (CurrentSpec.links != null && CurrentSpec.links.Length > 1) ? CurrentSpec.links[1].lengthM : 0.14;
-                double l2 = (CurrentSpec.links != null && CurrentSpec.links.Length > 2) ? CurrentSpec.links[2].lengthM : 0.11;
-                double tauPeak = 9.81 * (0.50 + mTotal * 0.4) * (l1 + l2);
-                string[] topoNames = { "AEGIS 3R Inspection Claw", "True SCARA Selective Arm", "Heavy Turret Palletizer", "Precision Wrist Probe" };
-                string topoLabel = topoNames[((_topologyVariantIndex % 4) + 4) % 4];
-
                 _specSheetText.text =
-                    $"=== LEFT-HAND FUSION CAD & PoE SCREW SHEET ===\n" +
-                    $"Primitive: {ActivePrimitiveShapeName} ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm) | {CadFeatureOpNames[CadFeatureOpIndex]}\n" +
-                    $"Material: {CadMaterialNames[CadMaterialIndex]} | Vol={CadPartVolumeCm3:F1}cm³ | Mass={CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m print)\n" +
-                    $"Mechanism: {topoLabel} ({dofCount}-DoF {specTag}) | Reach={(l1 + l2) * 1000:F0}mm | Peak τ={tauPeak:F2}Nm\n" +
-                    $"Direct 3D CAD: Drag +X/+Y/+Z Handles | Aim Boolean | Carry to Snap Ring | Poke Joint Pins S_i";
+                    $"=== FUSION 360 CONTROLS & PROPERTIES ===\n" +
+                    $"1. CREATE SHAPE: Box, Cylinder, Sphere, Torus, Tube, L-Bracket\n" +
+                    $"2. EXTRUDE / PULL: Drag +X (Red), +Y (Green), +Z (Blue) handles on 3D Model\n" +
+                    $"3. COMBINE (JOIN / CUT HOLE): Touch 3D Model to aim, then poke [+ADD / CUT BODY]\n" +
+                    $"4. MEASURE REAL OBJECT: Point both index fingers on a real object for 0.9s";
             }
         }
 
@@ -2688,7 +2710,10 @@ namespace KineticCore.Runtime
 
             string[] topoNames = { "Articulated 3R Claw", "SCARA Selective Arm", "Heavy Turret Palletizer", "Precision Wrist Probe" };
             string topoLabel = topoNames[((_topologyVariantIndex % 4) + 4) % 4];
-            StatusMessage = $"SYNTHESIZED: {topoLabel} ({widthMm:F0}mm jaw span | {instantSpec.joints.Length}-DoF)";
+            if (PureCadStudioMode)
+                StatusMessage = $"1:1 CAD MODEL READY -> [{ActivePrimitiveShapeName}] {ManualTestWidthMm:F0} x {CapturedDepthMm:F0} x {CapturedHeightMm:F0} mm ({CadPartMassGrams:F1}g)";
+            else
+                StatusMessage = $"SYNTHESIZED: {topoLabel} ({widthMm:F0}mm jaw span | {instantSpec.joints.Length}-DoF)";
             WriteDiagnosticState("SynthesizeFast_Instant");
 
             if (IsSynthesisInFlight) return;
@@ -2716,7 +2741,8 @@ namespace KineticCore.Runtime
                     ApplyMechanismSpec(AppendSnappedModulesToSpec(aiSpec));
                     _spawnAnimTimer = 0.7f;
                 }
-                StatusMessage = $"SYNTHESIZED: {topoLabel} ({widthMm:F0}mm | {LastSpecSource}, {LastApiLatencyMs}ms)";
+                if (!PureCadStudioMode)
+                    StatusMessage = $"SYNTHESIZED: {topoLabel} ({widthMm:F0}mm | {LastSpecSource}, {LastApiLatencyMs}ms)";
                 WriteDiagnosticState("SynthesizeFast");
             }
             catch (Exception ex)
@@ -2808,19 +2834,19 @@ namespace KineticCore.Runtime
                     }
                     catch { }
                 }
-                _exportFlashTimer = 0.8f; // Flash robot links bright emerald green to confirm URDF + STL + OBJ + CBF export!
+                _exportFlashTimer = 0.8f; // Flash links bright emerald green to confirm STL + OBJ + URDF export!
                 CareerUrdfExports++;
                 PlayerPrefs.SetInt("KineticCAD_TotalExports", CareerUrdfExports);
                 PlayerPrefs.Save();
                 SpatialTactileAudio.Instance?.PlayExportSuccess();
-                StatusMessage = $"EXPORTED -> {Path.GetFileName(LastExportedUrdfPath)} + {Path.GetFileName(stlPath)} + {Path.GetFileName(objPath)} ({1 + _stampedCadBodies.Count} Bodies)";
+                StatusMessage = $"EXPORTED 3D CAD -> {Path.GetFileName(stlPath)} + {Path.GetFileName(objPath)} ({1 + _stampedCadBodies.Count} Bodies)";
                 Debug.Log($"[KineticCAD] Exported URDF: {LastExportedUrdfPath} | STL: {stlPath} | OBJ: {objPath} | CBF: {cbfPath}");
                 WriteDiagnosticState("ExportUrdf");
             }
             catch (Exception ex)
             {
                 Debug.LogException(ex);
-                StatusMessage = "URDF/STL/OBJ export failed (see log)";
+                StatusMessage = "STL/OBJ export failed (see log)";
             }
         }
 
@@ -2862,6 +2888,8 @@ namespace KineticCore.Runtime
             _mechanismRoot.transform.SetParent(DeskWorkspaceOrigin, false);
             _mechanismRoot.transform.localPosition = MechanismRootLocalPos;
             _mechanismRoot.transform.localRotation = Quaternion.identity;
+            if (PureCadStudioMode)
+                _mechanismRoot.SetActive(false);
 
             int linkCount = spec.links != null ? spec.links.Length : 0;
             if (linkCount > 0)
@@ -2993,6 +3021,7 @@ namespace KineticCore.Runtime
 
         private void UpdateVisualLinksFromPoE()
         {
+            if (PureCadStudioMode) return;
             if (_jointPivots == null) return;
             Mat4[] jointTransforms = CurrentChain.ComputeCumulativeJointTransforms(_theta);
             float health = Mathf.Clamp01((float)(CurrentManipulability / ReferenceManipulability));
