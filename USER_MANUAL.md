@@ -1,72 +1,99 @@
-# KineticCAD XR — User Manual (Interactive 3D CAD Studio for Meta Quest 3)
+# KineticCAD XR — Interactive 3D CAD Studio Manual (Fusion 360 for Meta Quest 3)
 
-**KineticCAD XR** is a hands-first **Interactive 3D CAD Studio ("Spatial Fusion 360")** built for **Meta Quest 3**. Instead of staring at a flat 2D monitor, you measure real-world objects on your desk through **Quest 3 Color Passthrough**, pull 3D faces (`+X WIDTH`, `+Y HEIGHT`, `+Z DEPTH`) directly with your fingertips, combine multi-body shapes (`Join` or `Cut Hole`) from your **Left-Hand Fusion Palette**, hold your 1:1 3D model in your hand, and export watertight **`.stl`** and **`.obj`** files ready for 3D printing.
-
----
-
-## 1. What You See on Your Desk (Clean 3D CAD Workspace)
-
-When you launch the app on Quest 3 (or press **Play** in Unity), the workspace automatically centers on your desk with **zero robot-arm clutter**:
-
-1. **Center 3D CAD Model (`_sampleWorkpiece`):**
-   - Sits right in the center of your desk workbench with 3 glowing **Direct Extrude / Pull Handles** on its faces:
-     - **Coral Red Sphere (`+X WIDTH`):** Drag left/right with your fingertip to resize **Width ($X$)** (`20 mm – 250 mm`).
-     - **Emerald Green Sphere (`+Y HEIGHT`):** Drag up/down with your fingertip to extrude **Height ($Y$)** (`12 mm – 160 mm`).
-     - **Sky Blue Sphere (`+Z DEPTH`):** Drag forward/backward with your fingertip to resize **Depth ($Z$)** (`20 mm – 220 mm`).
-2. **Left-Hand Fusion Palette (`LeftHand_SpatialFusion_Palette`):**
-   - Follows your **Left Hand** (and automatically faces straight toward your eyes so every button and label is 100% readable!).
-   - Displays a **live rotating 3D Shape Preview** at the top and **6 Fusion 360 buttons** arranged in two columns.
-3. **Front Desk Toolbar (7 Tactile 3D Buttons):**
-   - Arranged along the front edge of your desk for quick one-finger pokes.
+**KineticCAD XR** is an interactive, hands-first **3D Spatial CAD & 3D-Printing Studio** for **Meta Quest 3 Mixed Reality** (and Desktop Editor). It uses familiar **Autodesk Fusion 360** terminology (`Create`, `Extrude / Pull`, `Rotate / Tilt`, `Combine: Join / Cut Hole / Intersect`, `Modify: Shell / Chamfer`, `Pattern`, `Physical Material`, `Hold 1:1 Model on Right Hand`, and `Export .STL / .OBJ`) with full **6-DoF CAD manipulation** (3 translations + 3 angular rotations/tilts) and dimensions up to **600 mm × 600 mm × 600 mm**.
 
 ---
 
-## 2. Plain-English Fusion 360 Button Guide
+## 1. Quick-Start Layout: What You See in Front of You
 
-### A. Left-Hand Fusion Palette (6 Buttons on Your Left Hand)
-
-| Button Label | Fusion 360 Function | What It Does When You Poke It |
-| :--- | :--- | :--- |
-| **`CREATE: SHAPE` *(Box / Cyl / Sphere / Torus / Tube / L)*** | **Create Primitive** | Cycles the 3D shape: **1. Box / Cube** $\rightarrow$ **2. Cylinder** $\rightarrow$ **3. Sphere** $\rightarrow$ **4. Torus Ring** $\rightarrow$ **5. Hollow Tube** $\rightarrow$ **6. L-Bracket**. |
-| **`+ADD / CUT BODY` *(Combine onto 3D Model)*** | **Combine (Execute)** | Adds the current shape onto your 3D CAD Model (or cuts a hole if `COMBINE MODE` is set to `Cut`). Stacks up to **7 bodies** (poking a 7th time resets to 1 base body). *Tip: You can also touch the 3D Shape Preview at the top of your Left-Hand Palette and drag it directly onto the Center 3D Model!* |
-| **`COMBINE MODE` *(Join / Cut Hole / Intersect)*** | **Combine Operation** | Switches between **Join (Add Solid)**, **Cut (Hole / Subtract)** (shown in glowing crimson), and **Intersect** (gold). Touch anywhere on the Center 3D Model to aim the **live 2 mm grid-snapped 3D Combine Cursor** before adding/cutting! |
-| **`PATTERN` *(1x / 3x Linear / 6x Circular)*** | **Rectangular & Circular Pattern** | Multiplies the active body into a **Single (1x)** body, a **Linear Pattern (3x)** along $X$, or a **Circular Pattern (6x)** bolt circle. |
-| **`EXTRUDE / PULL` *(Resize Width / Depth / Height)*** | **Extrude / Press Pull** | Steps through preset Extrude/Pull dimensions (+16 mm Height, +18 mm Depth, 1:1 Isometric Cube, or Reset), or drag the **`+X WIDTH` / `+Y HEIGHT` / `+Z DEPTH`** spheres directly on the 3D model! |
-| **`MATERIAL` *(PLA+ / PETG-CF / 6061 Al / Ti)*** | **Physical Material** | Switches the engineering material between **PLA+ ($1.24\text{ g/cm}^3$)**, **PETG-CF ($1.38\text{ g/cm}^3$)**, **6061-T6 Aluminum ($2.70\text{ g/cm}^3$)**, and **Ti-6Al-4V Titanium ($4.43\text{ g/cm}^3$)**, updating real-time **Volume ($\text{cm}^3$)**, **Mass ($\text{g}$)**, and **3D Print Time ($\text{min}$)**. |
-
----
-
-### B. Front Desk Toolbar (7 Buttons Along the Front Edge of Your Desk)
-
-| Button Label | Fusion 360 Function | What It Does When You Poke It |
-| :--- | :--- | :--- |
-| **`CREATE SHAPE` *(Box / Cyl / Sphere)*** | **Create Primitive** | Cycles the active 3D shape (`Box`, `Cylinder`, `Sphere`, `Torus`, `Hollow Tube`, `L-Bracket`). |
-| **`+ADD / CUT BODY` *(Combine Feature)*** | **Combine (Join / Cut)** | Combines a new body or cuts a hole into the Center 3D CAD Model at your aimed 3D cursor position. |
-| **`MODIFY: SHELL` *(Hollow / Chamfer)*** | **Shell & Chamfer** | Cycles internal structural modifiers: **Solid Extrude** $\rightarrow$ **Shell (2.5 mm Hollow Enclosure)** $\rightarrow$ **Chamfer + 4x M4 Bosses** $\rightarrow$ **L-Bracket Ribbed**. |
-| **`PATTERN ARRAY` *(1x / 3x / 6x)*** | **Pattern** | Cycles between **Single (1x)**, **Linear Pattern (3x)**, and **Circular Pattern (6x)**. |
-| **`HOLD 1:1 MODEL` *(Inspect in Hand)*** | **1:1 Physical Preview** | Attaches a true-scale **1:1 3D Print Preview** to your **Left Hand** so you can turn your wrist and inspect wall thickness, holes, and ergonomics before 3D printing. |
-| **`EXPORT .STL / .OBJ` *(Save 3D Print)*** | **Export Mesh** | Exports watertight binary **`.stl`** and **`.obj`** files of your multi-body 3D CAD model to `Exports/` (PC) or `Application.persistentDataPath` (Quest 3). |
-| **`CENTER DESK` *(Reset View)*** | **Reset Workspace** | Re-centers the 3D CAD Workbench comfortably in front of your headset (`0.48 m` forward, `0.30 m` below eye level, or locked to your left hand height if resting on your physical desk). |
+1. **Center 3D CAD Workbench & Active 3D Solid (`_sampleWorkpiece`):**
+   - Right in the center of your desk sits your live **1:1 3D CAD Model**.
+   - **3 Direct Extrude Handles (`10 mm` to `600 mm`):**
+     - **Coral Red (`+X WIDTH`):** Drag left/right to resize Width (`10 mm` – `600 mm`).
+     - **Emerald Green (`+Y HEIGHT`):** Drag up/down to pull Height (`10 mm` – `600 mm`).
+     - **Sky Blue (`+Z DEPTH`):** Drag forward/back to pull Depth (`10 mm` – `600 mm`).
+   - **3 Direct 3D Angular Tilt / Rotation Handles (`-180°` to `+180°`):**
+     - **Amber Orange (`TILT X° (Pitch)`):** Drag to tilt forward/backward around the X-axis (`5°` precision increments).
+     - **Neon Violet (`TILT Y° (Yaw)`):** Drag to rotate left/right around the vertical Y-axis (`5°` precision increments).
+     - **Electric Gold (`TILT Z° (Roll)`):** Drag to bank/roll side-to-side around the Z-axis (`5°` precision increments).
+2. **Left-Hand Fusion 360 Tool Palette (`LeftHand_SpatialFusion_Palette`):**
+   - Follows your **Left Hand** when held up in view and **always faces directly toward your eyes** (`Quaternion.LookRotation` on a front-facing `-Z` panel).
+   - Contains 6 core Fusion 360 buttons (`CREATE: SHAPE`, `+ADD / CUT BODY`, `COMBINE MODE`, `PATTERN`, `EXTRUDE / PULL`, `MATERIAL`) plus a spinning **3D Hologram Shape Preview** above the top edge.
+3. **Front Desk Fusion 360 Toolbar (`VR_Desk_PokeButtonBar`):**
+   - 7 physical `-5.5 mm` spring-loaded buttons along the front edge of the desk (`CREATE SHAPE`, `+ADD / CUT BODY`, `MODIFY: SHELL`, `ROTATE / TILT`, `HOLD 1:1 MODEL`, `EXPORT .STL / .OBJ`, `CENTER DESK`).
+4. **Right-Side In-VR Exported 3D Model Gallery Turntable (`ExportedModel_3D_GalleryPedestal`):**
+   - Whenever you poke **`EXPORT .STL / .OBJ`**, an emerald-lit **3D Turntable Gallery** appears on the right side of the desk displaying a live rotating 3D copy of your exported mesh alongside the exact `.stl` and `.obj` filenames and folder path.
 
 ---
 
-## 3. Measuring a Real-World Object on Your Desk (1:1 Passthrough Capture)
+## 2. All 12 Engineering & Fusion 360 Shapes (Up to `600 mm`)
 
-1. Look at any real physical object on your desk through **Quest 3 Passthrough**.
-2. Point **both index fingers** (left + right) at the opposite edges of the real object.
-3. A glowing cyan **Caliper Gauge** spans between your fingertips showing exact millimeters (`mm`).
-4. Hold your fingertips steady (`< 3.5 mm/s` movement) for **0.9 seconds**:
-   - A **1:1 wireframe bounding box** locks right over the real object on your desk.
-   - Your **Center 3D CAD Model** immediately resizes to match the captured **Width $\times$ Depth $\times$ Height** (`mm`).
-   - Reach out and drag the **`+X WIDTH`**, **`+Y HEIGHT`**, or **`+Z DEPTH`** spheres on the model to fine-tune any face to 1 mm precision!
+Poke **`CREATE SHAPE`** on the Desk Toolbar or **`CREATE: SHAPE`** on your Left-Hand Palette to cycle through all **12 parametric CAD shapes**:
+
+| # | Shape Name | Engineering / CAD Geometry |
+|---|---|---|
+| 1 | **`Box / Cube`** | Precision rectangular prism block |
+| 2 | **`Cylinder`** | Radial shaft, spacer, or standoff cylinder |
+| 3 | **`Sphere`** | Ball joint or dome primitive |
+| 4 | **`Cone / Frustum`** | Tapered conical frustum / nozzle adapter |
+| 5 | **`Torus Ring`** | O-ring / radial collar ring |
+| 6 | **`Hollow Tube`** | Outer cylindrical sleeve with coaxial inner bore |
+| 7 | **`Hex Prism (M-Nut)`** | 6-sided metric hex nut / bolt head with center bore |
+| 8 | **`Wedge / 45° Ramp`** | Angled structural gusset / 45° chamfered ramp |
+| 9 | **`L-Bracket`** | 90° structural mounting bracket with reinforced gusset ribs |
+| 10 | **`U-Channel`** | 3-walled structural C/U rail extrusion |
+| 11 | **`T-Beam Extrusion`** | Structural T-section flange + center web beam |
+| 12 | **`Flanged Bearing`** | Base mounting flange + raised cylindrical boss hub + center bore |
 
 ---
 
-## 4. Desktop / Unity Editor Keyboard & Mouse Shortcuts
+## 3. How to Hold Your 1:1 Model on Your Right Hand (`HOLD 1:1 MODEL`)
 
-When testing in the Unity Editor without a headset attached:
-- **Left-Click & Drag `+X WIDTH` / `+Y HEIGHT` / `+Z DEPTH` Spheres:** Directly extrudes Width, Height, or Depth in 3D.
-- **Hold `Shift` + Move Mouse Over Model:** Aims the live 3D Combine Cursor (`Join` / `Cut Hole`) on the 2 mm CAD grid.
-- **Left-Click Any 3D Button** (on the Desk Toolbar or Left-Hand Palette): Depresses and triggers that button.
-- **Right-Click + Drag / Scroll Wheel:** Orbit and zoom camera.
-- **Hotkeys:** `[T]` Create Shape | `[B]` +Add / Cut Body | `[J]` Combine Mode (Join / Cut) | `[L]` Pattern | `[X]` Extrude / Pull | `[F]` Modify: Shell / Chamfer | `[M]` Material | `[I]` Hold 1:1 Model | `[U]` Export `.STL` / `.OBJ` | `[R]` Center Desk.
+- Poke **`HOLD 1:1 MODEL (On Right Hand)`** on the Front Desk Toolbar (or press **`I`** on Desktop).
+- A true-scale **1:1 3D Print Preview** attaches directly above your **Right Hand** (`RightWorld + 5.5 cm`) so it never collides with the Fusion 360 Tool Palette on your Left Hand.
+- Move and rotate your Right Hand in passthrough to inspect how the physical 3D print will fit against real-world objects on your desk.
+
+---
+
+## 4. How to See & Access Your Exported `.STL` and `.OBJ` 3D Models
+
+When you poke **`EXPORT .STL / .OBJ`** (or press **`U`** on Desktop), KineticCAD XR exports a 100% standalone, centered CAD mesh (with all combined sub-bodies and their 3D translations + 3D tilt angles):
+
+1. **See It Immediately Inside VR (Right-Side Desk Turntable Gallery):**
+   - Look at the right side of the virtual desk: the **Exported 3D Model Gallery Turntable** automatically spawns and rotates your exported 3D model, showing the exact filename, dimensions, tilt angles, and save path.
+2. **On PC / Unity Editor:**
+   - Open the folder:
+     `E:\Unity\KineticCAD_XR\Exports\`
+   - Inside you will find:
+     - `kinetic_cad_3dof_cad.stl` (ASCII STL ready for Bambu Studio, PrusaSlicer, Cura, or Fusion 360)
+     - `kinetic_cad_3dof_cad.obj` (Wavefront OBJ 3D mesh)
+3. **On Meta Quest 3 Headset (Standalone Android Build):**
+   - Files are saved to:
+     `/sdcard/Android/data/com.DefaultCompany.KineticCADXR/files/`
+   - Connect your Quest 3 to your PC via USB cable and pull the `.stl` and `.obj` files to your desktop with one command:
+     ```powershell
+     adb pull /sdcard/Android/data/com.DefaultCompany.KineticCADXR/files/ ./Exports/
+     ```
+
+---
+
+## 5. Desktop / Unity Editor Keyboard & Mouse Shortcuts
+
+| Input | Action |
+|---|---|
+| **Left-Click Any 3D Button** | Activates any Desk Toolbar or Left-Hand Palette button |
+| **Left-Click & Drag `+X`, `+Y`, `+Z` Spheres** | Directly extrudes Width, Height, or Depth (`10 mm` – `600 mm`) |
+| **Left-Click & Drag `TILT X°`, `TILT Y°`, `TILT Z°`** | Directly tilts/rotates the 3D model in Pitch ($X$), Yaw ($Y$), or Roll ($Z$) (`-180°` to `+180°`) |
+| **`W / A / S / D / E / Q`** (or Arrow Keys) | Translates the 3D CAD Model in $X, Y, Z$ (`+Shift` for faster step) |
+| **Right-Click + Drag / Scroll** | Orbit / zoom 3D studio camera |
+| **`T` or `1`** | **Create Shape:** Cycle 12 CAD shapes |
+| **`B` or `2`** | **+Add / Cut Body:** Combine current shape (with its 3D tilt & offset) onto the model |
+| **`J` or `3`** | **Combine Mode:** Cycle `Join` / `Cut Hole` / `Intersect` |
+| **`L` or `4`** | **Pattern:** Cycle `Single (1x)` / `Linear (3x)` / `Circular (6x)` |
+| **`X` or `5`** | **Extrude / Pull:** Step through preset 3D dimensions up to `600 mm` |
+| **`V` or `6`** | **Rotate / Tilt 3D:** Step through 3D tilt angles (`Pitch X° / Yaw Y° / Roll Z°`) |
+| **`F`** | **Modify:** Cycle `Solid Extrude` / `Shell (2.5mm Hollow)` / `Chamfer + M4 Bosses` / `L-Bracket Ribbed` |
+| **`M`** | **Material:** Cycle `PLA+` / `PETG-CF` / `6061-T6 Al` / `Ti-6Al-4V` |
+| **`I`** | **Hold 1:1 Model:** Toggle 1:1 preview on your **Right Hand** |
+| **`U`** | **Export `.STL` / `.OBJ`:** Save 3D print files & display on Right Desk Gallery |
+| **`R` or `Space`** | **Center Desk:** Reset view |

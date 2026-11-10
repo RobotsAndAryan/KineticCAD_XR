@@ -51,7 +51,7 @@ namespace KineticCore.Runtime
             "CycleCadPrimitiveShape",
             "StampNewCadBodyToAssembly",
             "CycleCadFeatureOp",
-            "CycleCadPatternArray",
+            "CycleModelTiltAngles",
             "ToggleHandInspectMode",
             "ExportUrdf",
             "ResetPose",
@@ -66,19 +66,19 @@ namespace KineticCore.Runtime
         private readonly string[] _buttonLabels =
         {
             // Front Desk Fusion 360 Toolbar (indices 0..6)
-            "CREATE SHAPE\n(Box / Cyl / Sphere)",
+            "CREATE SHAPE\n(12 CAD Shapes)",
             "+ADD / CUT BODY\n(Combine Shape)",
             "MODIFY: SHELL\n(Hollow / Chamfer)",
-            "PATTERN ARRAY\n(Linear / Circular)",
-            "HOLD 1:1 MODEL\n(Inspect in Hand)",
-            "EXPORT .STL / .OBJ\n(Save 3D Print)",
+            "ROTATE / TILT\n(Pitch / Yaw / Roll)",
+            "HOLD 1:1 MODEL\n(On Right Hand)",
+            "EXPORT .STL / .OBJ\n(Save & Preview)",
             "CENTER DESK\n(Reset View)",
             // Left-Hand Spatial Fusion 360 CAD Palette (indices 7..12)
-            "CREATE: SHAPE\n(Box / Cyl / Sphere)",
+            "CREATE: SHAPE\n(12 CAD Shapes)",
             "+ADD / CUT BODY\n(Place on Model)",
             "COMBINE MODE\n(Join / Cut Hole)",
             "PATTERN\n(1x / Linear / Circ)",
-            "EXTRUDE / PULL\n(Resize W / D / H)",
+            "EXTRUDE / PULL\n(Up to 600mm)",
             "MATERIAL\n(PLA / CF / Al / Ti)"
         };
         private float _lastPokeTime = -10f;
@@ -92,6 +92,7 @@ namespace KineticCore.Runtime
         private bool _gazePinchTriggeredThisHold = false;
         private bool _draggingTargetWithMouse = false;
         private int _draggedFacePullAxis = -1;
+        private int _draggedTiltAxis = -1;
         private GameObject _fingertipReticle;
         private Renderer _reticleRenderer;
         private Transform _cachedRigOrigin;
@@ -287,9 +288,11 @@ namespace KineticCore.Runtime
         {
             if (_leftHandPaletteRoot == null || DeskWorkspaceOrigin == null) return;
 
-            // Animate spinning 3D holographic primitive preview above the Left-Hand Palette
-            int activeShape = MechanismController != null ? (MechanismController.CadPrimitiveShapeIndex % 6) : 0;
-            int previewSlot = (activeShape == 1 || activeShape == 4) ? 1 : (activeShape == 2 ? 2 : (activeShape == 3 ? 3 : 0));
+            // Animate spinning 3D holographic primitive preview above the Left-Hand Palette (supports all 12 shapes!)
+            int activeShape = MechanismController != null ? (MechanismController.CadPrimitiveShapeIndex % 12) : 0;
+            int previewSlot = (activeShape == 1 || activeShape == 3 || activeShape == 5 || activeShape == 6 || activeShape == 11)
+                ? 1
+                : (activeShape == 2 ? 2 : (activeShape == 4 ? 3 : 0));
             int boolMode = MechanismController != null ? MechanismController.CadBooleanModeIndex : 0;
             Color previewCol = (boolMode == 1)
                 ? new Color(1.0f, 0.22f, 0.52f)
@@ -305,7 +308,8 @@ namespace KineticCore.Runtime
                         _leftPalettePreviewShapes[p].SetActive(show);
                     if (show)
                     {
-                        _leftPalettePreviewShapes[p].transform.localRotation = Quaternion.Euler(22f, Time.time * 55f, 15f);
+                        Vector3 tilt = MechanismController != null ? MechanismController.ModelTiltDeg : Vector3.zero;
+                        _leftPalettePreviewShapes[p].transform.localRotation = Quaternion.Euler(22f + tilt.x * 0.35f, Time.time * 55f + tilt.y * 0.35f, 15f + tilt.z * 0.35f);
                         SetColorSafe(_leftPalettePreviewRenderers[p], previewCol);
                     }
                 }
@@ -314,8 +318,9 @@ namespace KineticCore.Runtime
             if (_leftPaletteHeaderLabel != null && MechanismController != null)
             {
                 int bodies = 1 + MechanismController.StampedBodyCount;
+                Vector3 tilt = MechanismController.ModelTiltDeg;
                 _leftPaletteHeaderLabel.text =
-                    $"FUSION 360 PALETTE ({bodies} Bod{(bodies == 1 ? "y" : "ies")})\n[{MechanismController.ActivePrimitiveShapeName} | {MechanismController.ActiveBooleanModeName} | {MechanismController.ActivePatternModeName}]";
+                    $"FUSION 360 PALETTE ({bodies}B | Tilt {tilt.x:F0}°,{tilt.y:F0}°,{tilt.z:F0}°)\n[{MechanismController.ActivePrimitiveShapeName} | {MechanismController.ActiveBooleanModeName}]";
             }
 
             Camera cam = MechanismController != null && MechanismController.HeadCamera != null ? MechanismController.HeadCamera : Camera.main;
@@ -445,8 +450,8 @@ namespace KineticCore.Runtime
             }
 
             Vector2 mousePos = KInput.MousePosition();
-            // Ignore clicks inside the top-left OnGUI control box (575 x 315 px)
-            bool insideGuiBox = (mousePos.x <= 575f && (Screen.height - mousePos.y) <= 315f);
+            // Ignore clicks inside the top-left OnGUI control box (615 x 340 px)
+            bool insideGuiBox = (mousePos.x <= 615f && (Screen.height - mousePos.y) <= 340f);
 
             Camera cam = (MechanismController != null && MechanismController.HeadCamera != null)
                 ? MechanismController.HeadCamera
@@ -466,6 +471,7 @@ namespace KineticCore.Runtime
                             _lastClickedButtonIdx = i;
                             _draggingTargetWithMouse = false;
                             _draggedFacePullAxis = -1;
+                            _draggedTiltAxis = -1;
                             SetColorSafe(_buttonRenderers[i], Color.white);
                             Vector3 rs = _buttonRestLocalScales[i];
                             Vector3 rp = _buttonRestLocalPositions[i];
@@ -487,6 +493,23 @@ namespace KineticCore.Runtime
                             if (MechanismController.FacePullHandles[a] != null && hit.transform == MechanismController.FacePullHandles[a])
                             {
                                 _draggedFacePullAxis = a;
+                                _draggedTiltAxis = -1;
+                                _draggingTargetWithMouse = false;
+                                SpatialTactileAudio.Instance?.PlayPokeClick(hit.point);
+                                return;
+                            }
+                        }
+                    }
+
+                    // Check if user clicked one of the 3 Direct 3D Tilt Gizmo Handles (TILT X° Pitch, TILT Y° Yaw, TILT Z° Roll)
+                    if (MechanismController != null && MechanismController.TiltHandles != null)
+                    {
+                        for (int t = 0; t < MechanismController.TiltHandles.Length; t++)
+                        {
+                            if (MechanismController.TiltHandles[t] != null && hit.transform == MechanismController.TiltHandles[t])
+                            {
+                                _draggedTiltAxis = t;
+                                _draggedFacePullAxis = -1;
                                 _draggingTargetWithMouse = false;
                                 SpatialTactileAudio.Instance?.PlayPokeClick(hit.point);
                                 return;
@@ -503,6 +526,7 @@ namespace KineticCore.Runtime
                             {
                                 _draggingTargetWithMouse = false;
                                 _draggedFacePullAxis = -1;
+                                _draggedTiltAxis = -1;
                                 MechanismController.CycleJointScrewAxis(p);
                                 return;
                             }
@@ -515,11 +539,27 @@ namespace KineticCore.Runtime
             if (!KInput.GetMouseButton(0))
             {
                 _draggingTargetWithMouse = false;
-                if (_draggedFacePullAxis >= 0)
+                if (_draggedFacePullAxis >= 0 || _draggedTiltAxis >= 0)
                 {
                     _draggedFacePullAxis = -1;
+                    _draggedTiltAxis = -1;
                     MechanismController?.TryHandleDirectSpatialCadManipulation(Vector3.zero, false);
                 }
+            }
+
+            if (_draggedTiltAxis >= 0 && !insideGuiBox && MechanismController != null && DeskWorkspaceOrigin != null)
+            {
+                Ray ray = cam.ScreenPointToRay(mousePos);
+                Vector3 handleWorld = (MechanismController.TiltHandles != null && MechanismController.TiltHandles[_draggedTiltAxis] != null)
+                    ? MechanismController.TiltHandles[_draggedTiltAxis].position
+                    : DeskWorkspaceOrigin.TransformPoint(new Vector3(0.05f, 0.04f, 0.01f));
+                Plane tiltPlane = new Plane(-cam.transform.forward, handleWorld);
+                if (tiltPlane.Raycast(ray, out float enterT) && enterT > 0f && enterT < 5f)
+                {
+                    Vector3 worldHit = ray.GetPoint(enterT);
+                    MechanismController.TryHandleDirectSpatialCadManipulation(worldHit, true, -1, null, false, _draggedTiltAxis);
+                }
+                return;
             }
 
             if (_draggedFacePullAxis >= 0 && !insideGuiBox && MechanismController != null && DeskWorkspaceOrigin != null)
@@ -982,6 +1022,7 @@ namespace KineticCore.Runtime
                 case "StampNewCadBodyToAssembly":  MechanismController.StampNewCadBodyToAssembly();  return;
                 case "CycleCadBooleanMode":        MechanismController.CycleCadBooleanMode();        return;
                 case "CycleCadPatternArray":       MechanismController.CycleCadPatternArray();       return;
+                case "CycleModelTiltAngles":       MechanismController.CycleModelTiltAngles();       return;
                 case "CycleDirectPushPullExtrude": MechanismController.CycleDirectPushPullExtrude(); return;
                 case "CycleCadFeatureOp":          MechanismController.CycleCadFeatureOp();          return;
                 case "CycleCadMaterial":           MechanismController.CycleCadMaterial();           return;

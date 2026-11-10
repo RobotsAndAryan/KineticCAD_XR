@@ -59,7 +59,7 @@ namespace KineticCore.Runtime
         public bool IsSynthesisInFlight { get; private set; }
 
         private static readonly double[] HomeTheta = { 0.25, 0.45, -0.65 };
-        private static readonly double[] DemoPresetWidthsMm = { 70.0, 145.0, 40.0, 210.0, 105.0 };
+        private static readonly double[] DemoPresetWidthsMm = { 70.0, 145.0, 240.0, 380.0, 520.0 };
         private int _demoPresetIndex = 0;
 
         // Keep MechanismRoot at (0,0,0) on DeskWorkspaceOrigin so PoE math and desk coordinates match 1:1
@@ -105,9 +105,14 @@ namespace KineticCore.Runtime
         private bool _stepPuppetDone = false;
         private bool _stepAuditOrExportDone = false;
 
-        // "Spatial Fusion 360" Real-World 3D Object Capture, Left-Hand Spatial CAD Palette, Multi-Body Tree & 1:1 Hand Print Preview
+        // "Spatial Fusion 360" Real-World 3D Object Capture, Left-Hand Spatial CAD Palette, Multi-Body Tree & 1:1 Right-Hand Print Preview
         public double CapturedDepthMm = 55.0;
         public double CapturedHeightMm = 42.0;
+        public Vector3 ModelTranslationMm = Vector3.zero;
+        public Vector3 ModelTiltDeg = Vector3.zero;
+        private int _tiltPresetStepIndex = 0;
+        public string LastExportedStlPath { get; private set; } = "";
+        public string LastExportedObjPath { get; private set; } = "";
         public int CadPrimitiveShapeIndex { get; private set; } = 0;
         public int CadBooleanModeIndex { get; private set; } = 0;
         public int CadPatternModeIndex { get; private set; } = 0;
@@ -132,9 +137,15 @@ namespace KineticCore.Runtime
             "Box / Cube",
             "Cylinder",
             "Sphere",
+            "Cone / Frustum",
             "Torus Ring",
             "Hollow Tube",
-            "L-Bracket"
+            "Hex Prism (M-Nut)",
+            "Wedge / 45° Ramp",
+            "L-Bracket",
+            "U-Channel",
+            "T-Beam Extrusion",
+            "Flanged Bearing"
         };
         private static readonly string[] CadBooleanModeNames =
         {
@@ -174,10 +185,14 @@ namespace KineticCore.Runtime
         private GameObject _handInspectRoot;
         private readonly List<GameObject> _handInspectSubParts = new List<GameObject>();
         private TextMesh _handInspectLabel;
+        private GameObject _exportedGalleryRoot;
+        private Transform _exportedGalleryModelContainer;
+        private readonly List<GameObject> _exportedGallerySubParts = new List<GameObject>();
+        private TextMesh _exportedGalleryLabel;
         private Transform _distalSnapPortRing;
         private HandFingertipReader _cachedTipReader;
 
-        // Upgrade 1: In-Place Passthrough Caliper Bounding Twin & Direct 3D Face-Pull Gizmo Handles (+X, +Y, +Z)
+        // Upgrade 1: In-Place Passthrough Caliper Bounding Twin & Direct 3D Face-Pull + 3D Tilt Gizmo Handles
         private GameObject _inPlaceTwinRoot;
         private readonly Transform[] _inPlaceTwinEdges = new Transform[12];
         private readonly Renderer[] _inPlaceTwinEdgeRenderers = new Renderer[12];
@@ -195,6 +210,19 @@ namespace KineticCore.Runtime
         public Transform[] FacePullHandles => _facePullHandles;
         private int _activeFacePullAxis = -1;
         private int _lastFacePullTickBucket = -1;
+
+        // 3D Angular Rotation / Tilt Handles (Pitch X°, Yaw Y°, Roll Z°)
+        private readonly Transform[] _tiltHandles = new Transform[3];
+        private readonly Renderer[] _tiltHandleRenderers = new Renderer[3];
+        private readonly Color[] _tiltHandleBaseColors =
+        {
+            new Color(1.0f, 0.62f, 0.15f), // TILT X° Pitch (Amber Orange)
+            new Color(0.88f, 0.32f, 1.0f), // TILT Y° Yaw (Neon Violet)
+            new Color(1.0f, 0.90f, 0.22f)  // TILT Z° Roll (Electric Gold)
+        };
+        public Transform[] TiltHandles => _tiltHandles;
+        private int _activeTiltAxis = -1;
+        private int _lastTiltTickBucket = -999;
 
         // Upgrade 2: Interactive 3D Boolean CSG Positioning Cursor (2mm CAD grid snapping before stamping)
         private GameObject _liveBooleanCursorObj;
@@ -630,7 +658,7 @@ namespace KineticCore.Runtime
             // If user is actively measuring an object with both hands in VR, use their live CaliperWidthMm;
             // otherwise cycle through distinct preset sizes so clicking Fast Synth shows a dramatic geometry change!
             var caliper = GetComponent<CaliperController>();
-            if (caliper != null && caliper.IsMeasuringActive && caliper.CaliperWidthMm >= 20.0 && caliper.CaliperWidthMm <= 260.0)
+            if (caliper != null && caliper.IsMeasuringActive && caliper.CaliperWidthMm >= 10.0 && caliper.CaliperWidthMm <= 600.0)
             {
                 ManualTestWidthMm = caliper.CaliperWidthMm;
             }
@@ -649,10 +677,10 @@ namespace KineticCore.Runtime
         public void ScrubDimensionMm(double deltaMm)
         {
             _stepSynthDone = true;
-            ManualTestWidthMm = System.Math.Max(20.0, System.Math.Min(250.0, ManualTestWidthMm + deltaMm));
+            ManualTestWidthMm = System.Math.Max(10.0, System.Math.Min(600.0, ManualTestWidthMm + deltaMm));
             SpatialTactileAudio.Instance?.PlayCaliperTick();
             SynthesizeAndSpawnSync(ManualTestWidthMm);
-            StatusMessage = $"EXTRUDE WIDTH -> Resized Width to {ManualTestWidthMm:F0} mm ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm)";
+            StatusMessage = $"EXTRUDE WIDTH -> Resized Width to {ManualTestWidthMm:F0} mm ({ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | Max 600mm)";
             WriteDiagnosticState("ScrubDimensionMm");
         }
 
@@ -812,7 +840,7 @@ namespace KineticCore.Runtime
         [Preserve]
         public void SetCaliperWidthMm(double w, bool triggerSynthesisNow = false)
         {
-            ManualTestWidthMm = System.Math.Max(20.0, System.Math.Min(250.0, w));
+            ManualTestWidthMm = System.Math.Max(10.0, System.Math.Min(600.0, w));
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             if (triggerSynthesisNow)
                 TriggerAsyncSynthesis(ManualTestWidthMm);
@@ -821,18 +849,18 @@ namespace KineticCore.Runtime
         [Preserve]
         public void SetCapturedObjectDimensionsMm(double wMm, double dMm, double hMm, bool triggerSynthesisNow = false, Vector3? inPlaceMidpointWorld = null)
         {
-            ManualTestWidthMm = System.Math.Max(20.0, System.Math.Min(250.0, wMm));
-            CapturedDepthMm = System.Math.Max(20.0, System.Math.Min(220.0, dMm));
-            CapturedHeightMm = System.Math.Max(12.0, System.Math.Min(160.0, hMm));
+            ManualTestWidthMm = System.Math.Max(10.0, System.Math.Min(600.0, wMm));
+            CapturedDepthMm = System.Math.Max(10.0, System.Math.Min(600.0, dMm));
+            CapturedHeightMm = System.Math.Max(10.0, System.Math.Min(600.0, hMm));
 
             if (inPlaceMidpointWorld.HasValue && DeskWorkspaceOrigin != null)
             {
                 Vector3 localMid = DeskWorkspaceOrigin.InverseTransformPoint(inPlaceMidpointWorld.Value);
-                float halfH = Mathf.Clamp((float)(CapturedHeightMm * 0.0005), 0.008f, 0.080f);
+                float halfH = Mathf.Clamp((float)(CapturedHeightMm * 0.0005), 0.008f, 0.300f);
                 _inPlaceTwinLocalCenter = new Vector3(
-                    Mathf.Clamp(localMid.x, -0.22f, 0.26f),
-                    Mathf.Clamp(localMid.y, halfH, 0.16f),
-                    Mathf.Clamp(localMid.z, -0.16f, 0.16f));
+                    Mathf.Clamp(localMid.x, -0.35f, 0.35f),
+                    Mathf.Clamp(localMid.y, halfH, 0.35f),
+                    Mathf.Clamp(localMid.z, -0.30f, 0.30f));
                 _hasInPlaceTwinCapture = true;
             }
 
@@ -849,14 +877,14 @@ namespace KineticCore.Runtime
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
-            StatusMessage = $"CREATE SHAPE -> [{ActivePrimitiveShapeName}] ({ManualTestWidthMm:F0} x {CapturedDepthMm:F0} x {CapturedHeightMm:F0} mm)";
+            StatusMessage = $"CREATE SHAPE ({CadPrimitiveShapeIndex + 1}/{CadPrimitiveShapeNames.Length}) -> [{ActivePrimitiveShapeName}] ({ManualTestWidthMm:F0} x {CapturedDepthMm:F0} x {CapturedHeightMm:F0} mm)";
             WriteDiagnosticState("CycleCadPrimitiveShape");
         }
 
         [Preserve]
         public void StampNewCadBodyToAssembly()
         {
-            if (_stampedCadBodies.Count >= 6)
+            if (_stampedCadBodies.Count >= 8)
             {
                 _stampedCadBodies.Clear();
                 _hasAimedBooleanCursor = false;
@@ -870,9 +898,9 @@ namespace KineticCore.Runtime
             int idx = _stampedCadBodies.Count;
             // Coaxially stack or radially mate each newly stamped primitive onto the parametric CAD assembly,
             // OR use the live 3D Combine cursor position aimed by the user's fingertip!
-            double[] offX = { 0.0,  22.0, -22.0,  0.0,  18.0, -18.0 };
-            double[] offZ = { 0.0,   0.0,   0.0, 20.0, -18.0,  18.0 };
-            double[] offY = { CapturedHeightMm * 0.55, 8.0, 8.0, 10.0, 14.0, 14.0 };
+            double[] offX = { 0.0,  22.0, -22.0,  0.0,  18.0, -18.0,  28.0, -28.0 };
+            double[] offZ = { 0.0,   0.0,   0.0, 20.0, -18.0,  18.0,  20.0, -20.0 };
+            double[] offY = { CapturedHeightMm * 0.55, 8.0, 8.0, 10.0, 14.0, 14.0, 18.0, 18.0 };
             double scale = (CadBooleanModeIndex == 1) ? 0.52 : 0.64; // Cut Hole creates precision negative bore/slot
 
             double targetOffX = _hasAimedBooleanCursor ? _aimedBooleanOffsetMm.x : offX[idx % offX.Length];
@@ -888,12 +916,15 @@ namespace KineticCore.Runtime
                 booleanMode = CadBooleanModeIndex,
                 patternMode = CadPatternModeIndex,
                 featureOp = CadFeatureOpIndex,
-                widthMm = System.Math.Max(14.0, ManualTestWidthMm * scale),
-                depthMm = System.Math.Max(14.0, CapturedDepthMm * scale),
-                heightMm = System.Math.Max(10.0, CapturedHeightMm * 0.65),
+                widthMm = System.Math.Max(10.0, System.Math.Min(600.0, ManualTestWidthMm * scale)),
+                depthMm = System.Math.Max(10.0, System.Math.Min(600.0, CapturedDepthMm * scale)),
+                heightMm = System.Math.Max(10.0, System.Math.Min(600.0, CapturedHeightMm * 0.65)),
                 localOffsetXMm = targetOffX,
                 localOffsetYMm = targetOffY,
-                localOffsetZMm = targetOffZ
+                localOffsetZMm = targetOffZ,
+                localRotXDeg = ModelTiltDeg.x,
+                localRotYDeg = ModelTiltDeg.y,
+                localRotZDeg = ModelTiltDeg.z
             };
             _stampedCadBodies.Add(spec);
 
@@ -902,8 +933,8 @@ namespace KineticCore.Runtime
             if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
             StatusMessage = usedAimedCursor
-                ? $"COMBINE BODY #{_stampedCadBodies.Count + 1} @ ({targetOffX:F0},{targetOffY:F0},{targetOffZ:F0})mm -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName})"
-                : $"COMBINE BODY #{_stampedCadBodies.Count + 1} -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName} | {ActivePatternModeName})";
+                ? $"COMBINE BODY #{_stampedCadBodies.Count + 1} @ ({targetOffX:F0},{targetOffY:F0},{targetOffZ:F0})mm Tilt({ModelTiltDeg.x:F0}°,{ModelTiltDeg.y:F0}°,{ModelTiltDeg.z:F0}°) -> [{ActivePrimitiveShapeName}]"
+                : $"COMBINE BODY #{_stampedCadBodies.Count + 1} -> [{ActivePrimitiveShapeName}] ({ActiveBooleanModeName} | Tilt {ModelTiltDeg.x:F0}°,{ModelTiltDeg.y:F0}°,{ModelTiltDeg.z:F0}°)";
             WriteDiagnosticState("StampNewCadBodyToAssembly");
         }
 
@@ -930,19 +961,78 @@ namespace KineticCore.Runtime
         }
 
         [Preserve]
+        public void CycleModelTiltAngles()
+        {
+            _tiltPresetStepIndex = (_tiltPresetStepIndex + 1) % 7;
+            switch (_tiltPresetStepIndex)
+            {
+                case 1:
+                    ModelTiltDeg = new Vector3(15f, 0f, 0f);
+                    break;
+                case 2:
+                    ModelTiltDeg = new Vector3(30f, 0f, 0f);
+                    break;
+                case 3:
+                    ModelTiltDeg = new Vector3(45f, 30f, 0f);
+                    break;
+                case 4:
+                    ModelTiltDeg = new Vector3(0f, 45f, 30f);
+                    break;
+                case 5:
+                    ModelTiltDeg = new Vector3(-30f, 45f, -25f);
+                    break;
+                case 6:
+                    ModelTiltDeg = new Vector3(90f, 0f, 0f);
+                    break;
+                default:
+                    ModelTiltDeg = Vector3.zero;
+                    ModelTranslationMm = Vector3.zero;
+                    break;
+            }
+            SpatialTactileAudio.Instance?.PlayCaliperTick();
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            StatusMessage = $"ROTATE / TILT 3D -> Pitch X:{ModelTiltDeg.x:F0}° | Yaw Y:{ModelTiltDeg.y:F0}° | Roll Z:{ModelTiltDeg.z:F0}° (Or drag TILT X°/Y°/Z° handles!)";
+            WriteDiagnosticState("CycleModelTiltAngles");
+        }
+
+        [Preserve]
+        public void TranslateModelMm(Vector3 deltaMm)
+        {
+            ModelTranslationMm = new Vector3(
+                Mathf.Clamp(ModelTranslationMm.x + deltaMm.x, -200f, 200f),
+                Mathf.Clamp(ModelTranslationMm.y + deltaMm.y, -100f, 250f),
+                Mathf.Clamp(ModelTranslationMm.z + deltaMm.z, -200f, 200f));
+            SpatialTactileAudio.Instance?.PlayCaliperTick();
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            StatusMessage = $"MOVE 3D (X/Y/Z) -> Offset ({ModelTranslationMm.x:F0}, {ModelTranslationMm.y:F0}, {ModelTranslationMm.z:F0}) mm | Tilt ({ModelTiltDeg.x:F0}°, {ModelTiltDeg.y:F0}°, {ModelTiltDeg.z:F0}°)";
+            WriteDiagnosticState("TranslateModelMm");
+        }
+
+        [Preserve]
         public void CycleDirectPushPullExtrude()
         {
-            _pushPullStepIndex = (_pushPullStepIndex + 1) % 4;
+            _pushPullStepIndex = (_pushPullStepIndex + 1) % 6;
             DirectPushPullActive = (_pushPullStepIndex % 2 == 1);
             switch (_pushPullStepIndex)
             {
                 case 1:
-                    CapturedHeightMm = System.Math.Min(140.0, CapturedHeightMm + 16.0);
+                    CapturedHeightMm = System.Math.Min(600.0, CapturedHeightMm + 30.0);
                     break;
                 case 2:
-                    CapturedDepthMm = System.Math.Min(180.0, CapturedDepthMm + 18.0);
+                    CapturedDepthMm = System.Math.Min(600.0, CapturedDepthMm + 35.0);
                     break;
                 case 3:
+                    ManualTestWidthMm = System.Math.Min(600.0, ManualTestWidthMm + 45.0);
+                    CapturedDepthMm = System.Math.Min(600.0, CapturedDepthMm + 45.0);
+                    CapturedHeightMm = System.Math.Min(600.0, CapturedHeightMm + 40.0);
+                    break;
+                case 4:
+                    // Large-Scale 250x200x160mm Engineering Block Preset
+                    ManualTestWidthMm = System.Math.Max(ManualTestWidthMm, 250.0);
+                    CapturedDepthMm = 200.0;
+                    CapturedHeightMm = 160.0;
+                    break;
+                case 5:
                     // Isometric Equal-Dimension Precision Lock
                     CapturedDepthMm = ManualTestWidthMm;
                     CapturedHeightMm = System.Math.Max(20.0, ManualTestWidthMm * 0.75);
@@ -956,7 +1046,7 @@ namespace KineticCore.Runtime
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             if (SnappedModuleCount >= 1)
                 SynthesizeAndSpawnSync(ManualTestWidthMm);
-            StatusMessage = $"EXTRUDE / PULL -> {ManualTestWidthMm:F0} x {CapturedDepthMm:F0} x {CapturedHeightMm:F0} mm | Vol={CadPartVolumeCm3:F1}cm³ ({CadPartMassGrams:F1}g)";
+            StatusMessage = $"EXTRUDE / PULL -> {ManualTestWidthMm:F0} x {CapturedDepthMm:F0} x {CapturedHeightMm:F0} mm (Max 600mm) | Vol={CadPartVolumeCm3:F1}cm³ ({CadPartMassGrams:F1}g)";
             WriteDiagnosticState("CycleDirectPushPullExtrude");
         }
 
@@ -1074,8 +1164,8 @@ namespace KineticCore.Runtime
                 _handInspectRoot.SetActive(HandInspectActive);
             SpatialTactileAudio.Instance?.PlaySynthChime();
             StatusMessage = HandInspectActive
-                ? $"1:1 PRINT IN HAND [ON] -> Hold out Left Hand to inspect {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm ({CadPartMassGrams:F1}g {CadMaterialNames[CadMaterialIndex]})"
-                : "1:1 PRINT IN HAND [OFF] -> Returned to Tabletop Studio";
+                ? $"1:1 MODEL ON RIGHT HAND [ON] -> Hold out Right Hand to inspect {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm ({CadPartMassGrams:F1}g {CadMaterialNames[CadMaterialIndex]})"
+                : "1:1 MODEL ON RIGHT HAND [OFF] -> Returned to Tabletop Studio";
             WriteDiagnosticState("ToggleHandInspectMode");
         }
 
@@ -1324,6 +1414,7 @@ namespace KineticCore.Runtime
             CreateTrajectoryTrail();
             CreatePayloadHousingAndSweptEnvelope();
             CreateHandInspectPreview();
+            CreateExportedModelGallery();
             CreateDirectManipulationGizmos();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
         }
@@ -1663,10 +1754,15 @@ namespace KineticCore.Runtime
                 _workpieceHomeLocalPos = new Vector3(0.05f, 0.008f, 0.01f);
                 if (_sampleWorkpiece != null)
                 {
-                    float hM = Mathf.Clamp((float)(CapturedHeightMm * 0.001), 0.012f, 0.085f);
-                    _sampleWorkpiece.localPosition = new Vector3(_workpieceHomeLocalPos.x, hM * 0.5f, _workpieceHomeLocalPos.z);
+                    float hM = Mathf.Clamp((float)(CapturedHeightMm * 0.001), 0.010f, 0.600f);
+                    Vector3 transOffsetM = ModelTranslationMm * 0.001f;
+                    _sampleWorkpiece.localPosition = new Vector3(
+                        _workpieceHomeLocalPos.x + transOffsetM.x,
+                        hM * 0.5f + transOffsetM.y,
+                        _workpieceHomeLocalPos.z + transOffsetM.z);
+                    _sampleWorkpiece.localRotation = Quaternion.Euler(ModelTiltDeg);
                     if (_workpieceLabel != null)
-                        _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, hM + 0.022f, 0f);
+                        _workpieceLabel.transform.localPosition = _sampleWorkpiece.localPosition + new Vector3(0f, hM * 0.5f + 0.028f, 0f);
                 }
                 return;
             }
@@ -1684,9 +1780,10 @@ namespace KineticCore.Runtime
 
             if (!_isHoldingWorkpiece && _sampleWorkpiece != null)
             {
-                _sampleWorkpiece.localPosition = _workpieceHomeLocalPos;
+                _sampleWorkpiece.localPosition = _workpieceHomeLocalPos + ModelTranslationMm * 0.001f;
+                _sampleWorkpiece.localRotation = Quaternion.Euler(ModelTiltDeg);
                 if (_workpieceLabel != null)
-                    _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, 0.024f, 0f);
+                    _workpieceLabel.transform.localPosition = _sampleWorkpiece.localPosition + new Vector3(0f, 0.024f, 0f);
             }
 
             if (_dropZonePad != null)
@@ -1715,16 +1812,84 @@ namespace KineticCore.Runtime
         {
             _handInspectRoot = new GameObject("HandInspect_1to1_PrintPreview");
             _handInspectRoot.transform.SetParent(DeskWorkspaceOrigin, false);
-            _handInspectRoot.transform.localPosition = new Vector3(-0.08f, 0.145f, -0.06f);
+            _handInspectRoot.transform.localPosition = new Vector3(0.16f, 0.145f, -0.06f);
             _handInspectRoot.transform.localRotation = Quaternion.identity;
 
             _handInspectLabel = WorldTextFactory.Create(
                 "HandInspect_SpecLabel", _handInspectRoot.transform,
                 new Vector3(0f, 0.052f, 0f), Quaternion.identity,
                 0.00145f, 32, new Color(0.30f, 1.0f, 0.75f),
-                "1:1 MODEL PREVIEW IN HAND\nHold out Left Hand to inspect before 3D printing");
+                "1:1 MODEL PREVIEW ON RIGHT HAND\nHold out Right Hand to inspect before 3D printing");
 
             _handInspectRoot.SetActive(HandInspectActive);
+        }
+
+        private void CreateExportedModelGallery()
+        {
+            _exportedGalleryRoot = new GameObject("ExportedModel_3D_GalleryPedestal");
+            _exportedGalleryRoot.transform.SetParent(DeskWorkspaceOrigin, false);
+            _exportedGalleryRoot.transform.localPosition = new Vector3(0.24f, 0.001f, 0.02f);
+            _exportedGalleryRoot.transform.localRotation = Quaternion.identity;
+
+            GameObject pedestalPad = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            pedestalPad.name = "ExportedGallery_TurntablePad";
+            Destroy(pedestalPad.GetComponent<Collider>());
+            pedestalPad.transform.SetParent(_exportedGalleryRoot.transform, false);
+            pedestalPad.transform.localPosition = new Vector3(0f, 0.002f, 0f);
+            pedestalPad.transform.localScale = new Vector3(0.115f, 0.0025f, 0.115f);
+            SetColorSafe(pedestalPad.GetComponent<Renderer>(), new Color(0.10f, 0.55f, 0.36f));
+
+            GameObject modelHolder = new GameObject("ExportedGallery_ModelContainer");
+            modelHolder.transform.SetParent(_exportedGalleryRoot.transform, false);
+            modelHolder.transform.localPosition = new Vector3(0f, 0.032f, 0f);
+            modelHolder.transform.localRotation = Quaternion.identity;
+            _exportedGalleryModelContainer = modelHolder.transform;
+
+            _exportedGalleryLabel = WorldTextFactory.Create(
+                "ExportedGallery_InfoLabel", _exportedGalleryRoot.transform,
+                new Vector3(0f, 0.105f, 0f), Quaternion.Euler(20f, -15f, 0f),
+                0.00130f, 28, new Color(0.35f, 1.0f, 0.68f),
+                "EXPORTED 3D MODEL GALLERY\nPoke [EXPORT .STL / .OBJ] to save & preview");
+
+            _exportedGalleryRoot.SetActive(false);
+        }
+
+        private void RefreshExportedModelGallery(string stlPath, string objPath)
+        {
+            if (_exportedGalleryRoot == null || _exportedGalleryModelContainer == null) return;
+            _exportedGalleryRoot.SetActive(true);
+
+            float rawW = Mathf.Clamp((float)(ManualTestWidthMm * 0.001), 0.010f, 0.600f);
+            float rawD = Mathf.Clamp((float)(CapturedDepthMm * 0.001), 0.010f, 0.600f);
+            float rawH = Mathf.Clamp((float)(CapturedHeightMm * 0.001), 0.010f, 0.600f);
+            // Fit large 600mm models neatly onto the 12cm gallery turntable while keeping proportions 100% exact
+            float maxDim = Mathf.Max(rawW, Mathf.Max(rawD, rawH));
+            float galleryFitScale = (maxDim > 0.13f) ? (0.13f / maxDim) : 1.0f;
+
+            float gw = rawW * galleryFitScale;
+            float gd = rawD * galleryFitScale;
+            float gh = rawH * galleryFitScale;
+
+            _exportedGalleryModelContainer.localPosition = new Vector3(0f, gh * 0.5f + 0.008f, 0f);
+            _exportedGalleryModelContainer.localRotation = Quaternion.Euler(ModelTiltDeg);
+
+            RebuildCadFeatureSubParts(
+                _exportedGalleryModelContainer, _exportedGallerySubParts,
+                gw, gd, gh, new Color(0.22f, 0.95f, 0.62f), galleryFitScale);
+
+            if (_exportedGalleryLabel != null)
+            {
+                _exportedGalleryLabel.transform.localPosition = new Vector3(0f, gh + 0.036f, 0f);
+                string stlName = string.IsNullOrEmpty(stlPath) ? "kinetic_cad.stl" : Path.GetFileName(stlPath);
+                string objName = string.IsNullOrEmpty(objPath) ? "kinetic_cad.obj" : Path.GetFileName(objPath);
+                string folderHint = Application.isEditor
+                    ? "PC Folder: E:\\Unity\\KineticCAD_XR\\Exports\\"
+                    : "Quest 3: /sdcard/Android/data/com.DefaultCompany.KineticCADXR/files/";
+                _exportedGalleryLabel.text =
+                    $"✓ SAVED 3D MESH #{CareerUrdfExports}: {stlName} + {objName}\n" +
+                    $"{ActivePrimitiveShapeName} | {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | Tilt({ModelTiltDeg.x:F0}°,{ModelTiltDeg.y:F0}°,{ModelTiltDeg.z:F0}°)\n" +
+                    $"{folderHint}";
+            }
         }
 
         private void CreateDirectManipulationGizmos()
@@ -1778,6 +1943,27 @@ namespace KineticCore.Runtime
                     0.068f, 28, _facePullBaseColors[a], handleTags[a]);
             }
 
+            // 2B. Direct 3D Angular Rotation / Tilt Gizmo Handles (TILT X° Pitch, TILT Y° Yaw, TILT Z° Roll)
+            string[] tiltNames = { "TiltHandle_X_Pitch", "TiltHandle_Y_Yaw", "TiltHandle_Z_Roll" };
+            string[] tiltTags = { "TILT X° (Pitch)", "TILT Y° (Yaw)", "TILT Z° (Roll)" };
+            for (int t = 0; t < 3; t++)
+            {
+                GameObject tGo = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                tGo.name = tiltNames[t];
+                // Keep Collider enabled so Desktop Mouse Raycast and VR Fingertip drag both work!
+                tGo.transform.SetParent(DeskWorkspaceOrigin, false);
+                tGo.transform.localScale = new Vector3(0.018f, 0.005f, 0.018f);
+                Renderer tr = tGo.GetComponent<Renderer>();
+                SetColorSafe(tr, _tiltHandleBaseColors[t]);
+                _tiltHandles[t] = tGo.transform;
+                _tiltHandleRenderers[t] = tr;
+
+                WorldTextFactory.Create(
+                    $"TiltHandleLabel_{t}", tGo.transform,
+                    new Vector3(0f, 2.2f, 0f), Quaternion.Euler(20f, 0f, 0f),
+                    0.068f, 26, _tiltHandleBaseColors[t], tiltTags[t]);
+            }
+
             // 3. Interactive 3D Combine Positioning Cursor (snaps to 2mm CAD grid inside model before adding/cutting)
             _liveBooleanCursorObj = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             _liveBooleanCursorObj.name = "LiveBoolean_3D_Cursor";
@@ -1815,16 +2001,16 @@ namespace KineticCore.Runtime
 
         private void UpdateInPlaceTwinAndFaceHandles(float wMeters, float dMeters, float hMeters)
         {
-            // Position the 3 Direct Extrude Handles (+X Width, +Y Height, +Z Depth) on the outer faces of _sampleWorkpiece
+            // Position the 3 Direct Extrude Handles (+X Width, +Y Height, +Z Depth) and 3 Direct Tilt Handles on _sampleWorkpiece
             if (_sampleWorkpiece != null && _facePullHandles[0] != null)
             {
                 bool showHandles = !_isHoldingWorkpiece;
                 Vector3 wpCenter = _sampleWorkpiece.localPosition;
                 Vector3[] faceOffsets =
                 {
-                    new Vector3(wMeters * 0.5f + 0.014f, 0f, 0f), // +X Width face
-                    new Vector3(0f, hMeters * 0.5f + 0.014f, 0f), // +Y Top/Height face
-                    new Vector3(0f, 0f, dMeters * 0.5f + 0.014f)  // +Z Depth face
+                    new Vector3(wMeters * 0.5f + 0.016f, 0f, 0f), // +X Width face
+                    new Vector3(0f, hMeters * 0.5f + 0.016f, 0f), // +Y Top/Height face
+                    new Vector3(0f, 0f, dMeters * 0.5f + 0.016f)  // +Z Depth face
                 };
                 for (int a = 0; a < 3; a++)
                 {
@@ -1834,6 +2020,25 @@ namespace KineticCore.Runtime
                     bool isPulled = (_activeFacePullAxis == a);
                     _facePullHandles[a].localScale = Vector3.one * (isPulled ? 0.023f : 0.018f);
                     SetColorSafe(_facePullRenderers[a], isPulled ? Color.white : _facePullBaseColors[a]);
+                }
+
+                // Position the 3 Angular Rotation / Tilt Handles around the upper corners of the 3D CAD Model
+                Vector3[] tiltOffsets =
+                {
+                    new Vector3(-wMeters * 0.5f - 0.018f, hMeters * 0.35f + 0.012f, 0f),                // TILT X° (Pitch)
+                    new Vector3(-wMeters * 0.35f - 0.010f, hMeters * 0.5f + 0.020f, -dMeters * 0.35f), // TILT Y° (Yaw)
+                    new Vector3( wMeters * 0.35f + 0.010f, hMeters * 0.5f + 0.020f, -dMeters * 0.35f)  // TILT Z° (Roll)
+                };
+                for (int t = 0; t < 3; t++)
+                {
+                    if (_tiltHandles[t] == null) continue;
+                    _tiltHandles[t].gameObject.SetActive(showHandles);
+                    _tiltHandles[t].localPosition = wpCenter + tiltOffsets[t];
+                    bool isTilted = (_activeTiltAxis == t);
+                    _tiltHandles[t].localScale = isTilted
+                        ? new Vector3(0.024f, 0.007f, 0.024f)
+                        : new Vector3(0.018f, 0.005f, 0.018f);
+                    SetColorSafe(_tiltHandleRenderers[t], isTilted ? Color.white : _tiltHandleBaseColors[t]);
                 }
             }
 
@@ -1881,18 +2086,20 @@ namespace KineticCore.Runtime
             bool isActivePointOrDrag,
             int forcedFaceAxis = -1,
             Vector3? leftPalettePreviewPos = null,
-            bool aimBooleanRequested = false)
+            bool aimBooleanRequested = false,
+            int forcedTiltAxis = -1)
         {
             if (DeskWorkspaceOrigin == null || _sampleWorkpiece == null) return false;
 
             if (_carrySnapCooldown > 0f)
                 _carrySnapCooldown = Mathf.Max(0f, _carrySnapCooldown - Time.deltaTime);
 
-            if (!isActivePointOrDrag && forcedFaceAxis < 0)
+            if (!isActivePointOrDrag && forcedFaceAxis < 0 && forcedTiltAxis < 0)
             {
-                if (_activeFacePullAxis >= 0)
+                if (_activeFacePullAxis >= 0 || _activeTiltAxis >= 0)
                 {
                     _activeFacePullAxis = -1;
+                    _activeTiltAxis = -1;
                     UpdateSampleWorkpieceVisual(ManualTestWidthMm);
                 }
                 if (_isCarryingSnapModule)
@@ -1908,7 +2115,72 @@ namespace KineticCore.Runtime
             Vector3 localPtr = DeskWorkspaceOrigin.InverseTransformPoint(pointerWorldPos);
             Vector3 wpCenter = _sampleWorkpiece.localPosition;
 
-            // 1. Direct 3D Extrude / Pull Handles (+X Width, +Y Height, +Z Depth)
+            // 1A. Direct 3D Angular Rotation / Tilt Handles (TILT X° Pitch, TILT Y° Yaw, TILT Z° Roll)
+            if (!_isHoldingWorkpiece && forcedFaceAxis < 0)
+            {
+                if (forcedTiltAxis >= 0 && forcedTiltAxis <= 2)
+                {
+                    _activeTiltAxis = forcedTiltAxis;
+                }
+                else if (_activeTiltAxis < 0 && _activeFacePullAxis < 0)
+                {
+                    for (int t = 0; t < 3; t++)
+                    {
+                        if (_tiltHandles[t] != null && Vector3.Distance(pointerWorldPos, _tiltHandles[t].position) < 0.036f)
+                        {
+                            _activeTiltAxis = t;
+                            SpatialTactileAudio.Instance?.PlayPokeClick(_tiltHandles[t].position);
+                            break;
+                        }
+                    }
+                }
+                else if (_activeTiltAxis >= 0 && _tiltHandles[_activeTiltAxis] != null &&
+                         Vector3.Distance(pointerWorldPos, _tiltHandles[_activeTiltAxis].position) > 0.22f)
+                {
+                    _activeTiltAxis = -1;
+                }
+
+                if (_activeTiltAxis >= 0)
+                {
+                    Vector3 rel = localPtr - wpCenter;
+                    float rawDeg;
+                    string tiltTag;
+                    if (_activeTiltAxis == 0) // Pitch around X (drag in YZ plane)
+                    {
+                        rawDeg = Mathf.Atan2(rel.z, Mathf.Max(0.01f, rel.y)) * Mathf.Rad2Deg * 1.5f;
+                        float snapped = Mathf.Clamp(Mathf.Round(rawDeg / 5f) * 5f, -180f, 180f);
+                        ModelTiltDeg = new Vector3(snapped, ModelTiltDeg.y, ModelTiltDeg.z);
+                        tiltTag = $"TILT X (Pitch) = {ModelTiltDeg.x:F0}°";
+                    }
+                    else if (_activeTiltAxis == 1) // Yaw around Y (drag in XZ plane)
+                    {
+                        rawDeg = Mathf.Atan2(rel.x, rel.z) * Mathf.Rad2Deg;
+                        float snapped = Mathf.Clamp(Mathf.Round(rawDeg / 5f) * 5f, -180f, 180f);
+                        ModelTiltDeg = new Vector3(ModelTiltDeg.x, snapped, ModelTiltDeg.z);
+                        tiltTag = $"TILT Y (Yaw) = {ModelTiltDeg.y:F0}°";
+                    }
+                    else // Roll around Z (drag in XY plane)
+                    {
+                        rawDeg = Mathf.Atan2(-rel.x, Mathf.Max(0.01f, rel.y)) * Mathf.Rad2Deg * 1.5f;
+                        float snapped = Mathf.Clamp(Mathf.Round(rawDeg / 5f) * 5f, -180f, 180f);
+                        ModelTiltDeg = new Vector3(ModelTiltDeg.x, ModelTiltDeg.y, snapped);
+                        tiltTag = $"TILT Z (Roll) = {ModelTiltDeg.z:F0}°";
+                    }
+
+                    int tiltBucket = Mathf.RoundToInt((ModelTiltDeg.x + ModelTiltDeg.y + ModelTiltDeg.z) / 5f);
+                    if (tiltBucket != _lastTiltTickBucket)
+                    {
+                        _lastTiltTickBucket = tiltBucket;
+                        SpatialTactileAudio.Instance?.PlayCaliperTick(pointerWorldPos);
+                    }
+
+                    UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+                    StatusMessage = $"3D TILT HANDLE DRAG [{tiltTag}] -> Angles: Pitch X={ModelTiltDeg.x:F0}° | Yaw Y={ModelTiltDeg.y:F0}° | Roll Z={ModelTiltDeg.z:F0}°";
+                    return true;
+                }
+            }
+
+            // 1B. Direct 3D Extrude / Pull Handles (+X Width, +Y Height, +Z Depth up to 600mm!)
             if (!_isHoldingWorkpiece)
             {
                 if (forcedFaceAxis >= 0 && forcedFaceAxis <= 2)
@@ -1928,7 +2200,7 @@ namespace KineticCore.Runtime
                     }
                 }
                 else if (_facePullHandles[_activeFacePullAxis] != null &&
-                         Vector3.Distance(pointerWorldPos, _facePullHandles[_activeFacePullAxis].position) > 0.14f)
+                         Vector3.Distance(pointerWorldPos, _facePullHandles[_activeFacePullAxis].position) > 0.25f)
                 {
                     _activeFacePullAxis = -1;
                 }
@@ -1938,24 +2210,24 @@ namespace KineticCore.Runtime
                     DirectPushPullActive = true;
                     string axisTag;
                     int tickBucket;
-                    if (_activeFacePullAxis == 0) // +X Width
+                    if (_activeFacePullAxis == 0) // +X Width (10..600mm)
                     {
                         double newW = System.Math.Round(System.Math.Abs(localPtr.x - wpCenter.x) * 2000.0);
-                        ManualTestWidthMm = System.Math.Max(20.0, System.Math.Min(250.0, newW));
+                        ManualTestWidthMm = System.Math.Max(10.0, System.Math.Min(600.0, newW));
                         axisTag = $"+X WIDTH = {ManualTestWidthMm:F0}mm";
                         tickBucket = (int)(ManualTestWidthMm / 2.0);
                     }
-                    else if (_activeFacePullAxis == 1) // +Y Height
+                    else if (_activeFacePullAxis == 1) // +Y Height (10..600mm)
                     {
-                        double newH = System.Math.Round(System.Math.Max(0.012f, localPtr.y) * 1000.0);
-                        CapturedHeightMm = System.Math.Max(12.0, System.Math.Min(160.0, newH));
+                        double newH = System.Math.Round(System.Math.Max(0.010f, localPtr.y) * 1000.0);
+                        CapturedHeightMm = System.Math.Max(10.0, System.Math.Min(600.0, newH));
                         axisTag = $"+Y HEIGHT = {CapturedHeightMm:F0}mm";
                         tickBucket = (int)(CapturedHeightMm / 2.0);
                     }
-                    else // +Z Depth
+                    else // +Z Depth (10..600mm)
                     {
                         double newD = System.Math.Round(System.Math.Abs(localPtr.z - wpCenter.z) * 2000.0);
-                        CapturedDepthMm = System.Math.Max(20.0, System.Math.Min(220.0, newD));
+                        CapturedDepthMm = System.Math.Max(10.0, System.Math.Min(600.0, newD));
                         axisTag = $"+Z DEPTH = {CapturedDepthMm:F0}mm";
                         tickBucket = (int)(CapturedDepthMm / 2.0);
                     }
@@ -1970,18 +2242,18 @@ namespace KineticCore.Runtime
                     if (SnappedModuleCount >= 1)
                         SynthesizeAndSpawnSync(ManualTestWidthMm);
 
-                    StatusMessage = $"EXTRUDE HANDLE DRAG [{axisTag}] -> {ManualTestWidthMm:F0} x {CapturedDepthMm:F0} x {CapturedHeightMm:F0} mm | {CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m)";
+                    StatusMessage = $"EXTRUDE HANDLE DRAG [{axisTag}] -> {ManualTestWidthMm:F0} x {CapturedDepthMm:F0} x {CapturedHeightMm:F0} mm (Max 600mm) | {CadPartMassGrams:F1}g";
                     return true;
                 }
             }
 
             // 2. Interactive 3D Combine Positioning Cursor (when hovering inside/over the 3D CAD Model)
             float distToWpCenter = Vector3.Distance(localPtr, wpCenter);
-            if (!_isHoldingWorkpiece && distToWpCenter < 0.095f && (PureCadStudioMode || CadBooleanModeIndex == 1 || CadBooleanModeIndex == 2 || aimBooleanRequested))
+            if (!_isHoldingWorkpiece && distToWpCenter < 0.18f && (PureCadStudioMode || CadBooleanModeIndex == 1 || CadBooleanModeIndex == 2 || aimBooleanRequested))
             {
-                float maxX = Mathf.Max(8f, (float)ManualTestWidthMm * 0.45f);
-                float maxY = Mathf.Max(6f, (float)CapturedHeightMm * 0.55f);
-                float maxZ = Mathf.Max(8f, (float)CapturedDepthMm * 0.45f);
+                float maxX = Mathf.Max(8f, (float)ManualTestWidthMm * 0.48f);
+                float maxY = Mathf.Max(6f, (float)CapturedHeightMm * 0.58f);
+                float maxZ = Mathf.Max(8f, (float)CapturedDepthMm * 0.48f);
                 float offXMm = Mathf.Clamp(Mathf.Round((localPtr.x - wpCenter.x) * 500f) * 2f, -maxX, maxX);
                 float offYMm = Mathf.Clamp(Mathf.Round((localPtr.y - wpCenter.y) * 500f) * 2f, -maxY * 0.5f, maxY);
                 float offZMm = Mathf.Clamp(Mathf.Round((localPtr.z - wpCenter.z) * 500f) * 2f, -maxZ, maxZ);
@@ -1994,10 +2266,11 @@ namespace KineticCore.Runtime
                 {
                     _liveBooleanCursorObj.SetActive(true);
                     _liveBooleanCursorObj.transform.localPosition = wpCenter + _aimedBooleanOffsetMm * 0.001f;
+                    _liveBooleanCursorObj.transform.localRotation = Quaternion.Euler(ModelTiltDeg);
                     float scaleFactor = (CadBooleanModeIndex == 1) ? 0.48f : 0.58f;
-                    float cw = Mathf.Clamp((float)(ManualTestWidthMm * 0.001 * scaleFactor), 0.012f, 0.075f);
-                    float ch = Mathf.Clamp((float)(CapturedHeightMm * 0.0005 * 0.7f), 0.006f, 0.045f);
-                    float cd = Mathf.Clamp((float)(CapturedDepthMm * 0.001 * scaleFactor), 0.012f, 0.075f);
+                    float cw = Mathf.Clamp((float)(ManualTestWidthMm * 0.001 * scaleFactor), 0.012f, 0.250f);
+                    float ch = Mathf.Clamp((float)(CapturedHeightMm * 0.0005 * 0.7f), 0.006f, 0.150f);
+                    float cd = Mathf.Clamp((float)(CapturedDepthMm * 0.001 * scaleFactor), 0.012f, 0.250f);
                     _liveBooleanCursorObj.transform.localScale = new Vector3(cw, ch, cd);
                     Color curCol = (CadBooleanModeIndex == 1)
                         ? new Color(1.0f, 0.15f, 0.45f)
@@ -2029,9 +2302,9 @@ namespace KineticCore.Runtime
                         _dragCarryGhostObj.SetActive(true);
                         _dragCarryGhostObj.transform.position = pointerWorldPos;
                         _dragCarryGhostObj.transform.Rotate(Vector3.up, Time.deltaTime * 90f, Space.Self);
-                        float gw = Mathf.Clamp((float)(ManualTestWidthMm * 0.00045), 0.016f, 0.048f);
-                        float gh = Mathf.Clamp((float)(CapturedHeightMm * 0.00045), 0.012f, 0.038f);
-                        float gd = Mathf.Clamp((float)(CapturedDepthMm * 0.00045), 0.016f, 0.048f);
+                        float gw = Mathf.Clamp((float)(ManualTestWidthMm * 0.00045), 0.016f, 0.085f);
+                        float gh = Mathf.Clamp((float)(CapturedHeightMm * 0.00045), 0.012f, 0.075f);
+                        float gd = Mathf.Clamp((float)(CapturedDepthMm * 0.00045), 0.016f, 0.085f);
                         _dragCarryGhostObj.transform.localScale = new Vector3(gw, gh, gd);
                     }
 
@@ -2081,7 +2354,9 @@ namespace KineticCore.Runtime
             return false;
         }
 
-        private void RebuildCadFeatureSubParts(Transform parentContainer, List<GameObject> partList, float wM, float dM, float hM, Color matColor)
+        private void RebuildCadFeatureSubParts(
+            Transform parentContainer, List<GameObject> partList,
+            float wM, float dM, float hM, Color matColor, float scaleMultiplier = 1.0f)
         {
             for (int i = 0; i < partList.Count; i++)
             {
@@ -2091,24 +2366,28 @@ namespace KineticCore.Runtime
 
             Color primaryColor = GetBooleanTintedColor(matColor, CadBooleanModeIndex);
             BuildPatternedPrimitiveVisual(
-                parentContainer, partList, "Primary", Vector3.zero, wM, dM, hM,
+                parentContainer, partList, "Primary", Vector3.zero, Quaternion.identity, wM, dM, hM,
                 CadPrimitiveShapeIndex, CadFeatureOpIndex, CadPatternModeIndex, primaryColor);
 
-            // Render every additional body stamped from the Left-Hand Spatial CAD Palette!
+            // Render every additional body stamped from the Left-Hand Spatial CAD Palette (including its 3D offset & 3D tilt!)
             for (int b = 0; b < _stampedCadBodies.Count; b++)
             {
                 StampedCadBodySpec body = _stampedCadBodies[b];
                 if (body == null) continue;
                 Vector3 localOff = new Vector3(
-                    (float)(body.localOffsetXMm * 0.001),
-                    (float)(body.localOffsetYMm * 0.001),
-                    (float)(body.localOffsetZMm * 0.001));
-                float bw = Mathf.Clamp((float)(body.widthMm * 0.001), 0.010f, 0.140f);
-                float bd = Mathf.Clamp((float)(body.depthMm * 0.001), 0.010f, 0.120f);
-                float bh = Mathf.Clamp((float)(body.heightMm * 0.001), 0.008f, 0.085f);
+                    (float)(body.localOffsetXMm * 0.001) * scaleMultiplier,
+                    (float)(body.localOffsetYMm * 0.001) * scaleMultiplier,
+                    (float)(body.localOffsetZMm * 0.001) * scaleMultiplier);
+                Quaternion localRot = Quaternion.Euler(
+                    (float)body.localRotXDeg,
+                    (float)body.localRotYDeg,
+                    (float)body.localRotZDeg);
+                float bw = Mathf.Clamp((float)(body.widthMm * 0.001), 0.008f, 0.600f) * scaleMultiplier;
+                float bd = Mathf.Clamp((float)(body.depthMm * 0.001), 0.008f, 0.600f) * scaleMultiplier;
+                float bh = Mathf.Clamp((float)(body.heightMm * 0.001), 0.008f, 0.600f) * scaleMultiplier;
                 Color bodyCol = GetBooleanTintedColor(matColor, body.booleanMode);
                 BuildPatternedPrimitiveVisual(
-                    parentContainer, partList, body.bodyName, localOff, bw, bd, bh,
+                    parentContainer, partList, body.bodyName, localOff, localRot, bw, bd, bh,
                     body.primitiveShape, body.featureOp, body.patternMode, bodyCol);
             }
         }
@@ -2124,16 +2403,31 @@ namespace KineticCore.Runtime
 
         private void BuildPatternedPrimitiveVisual(
             Transform parentContainer, List<GameObject> partList, string prefix,
-            Vector3 centerOffset, float wM, float dM, float hM,
+            Vector3 centerOffset, Quaternion bodyRot, float wM, float dM, float hM,
             int primitiveShape, int featureOp, int patternMode, Color col)
         {
+            // Create a dedicated sub-pivot if rotated so all sub-parts tilt cleanly together
+            Transform targetParent = parentContainer;
+            Vector3 baseOff = centerOffset;
+            if (Quaternion.Angle(bodyRot, Quaternion.identity) > 0.5f)
+            {
+                GameObject pivotGo = new GameObject($"{prefix}_TiltPivot");
+                pivotGo.transform.SetParent(parentContainer, false);
+                pivotGo.transform.localPosition = centerOffset;
+                pivotGo.transform.localRotation = bodyRot;
+                pivotGo.transform.localScale = Vector3.one;
+                partList.Add(pivotGo);
+                targetParent = pivotGo.transform;
+                baseOff = Vector3.zero;
+            }
+
             if (patternMode == 1) // 3x Linear Pattern along X
             {
                 float pitch = Mathf.Max(0.018f, wM * 0.65f);
                 for (int k = -1; k <= 1; k++)
                 {
-                    Vector3 pos = centerOffset + new Vector3(k * pitch, 0f, 0f);
-                    BuildSinglePrimitiveVisual(parentContainer, partList, $"{prefix}_Lin{k + 1}", pos, wM * 0.52f, dM * 0.52f, hM, primitiveShape, featureOp, col);
+                    Vector3 pos = baseOff + new Vector3(k * pitch, 0f, 0f);
+                    BuildSinglePrimitiveVisual(targetParent, partList, $"{prefix}_Lin{k + 1}", pos, wM * 0.52f, dM * 0.52f, hM, primitiveShape, featureOp, col);
                 }
             }
             else if (patternMode == 2) // 6x Circular Radial Flange Pattern
@@ -2142,13 +2436,13 @@ namespace KineticCore.Runtime
                 for (int k = 0; k < 6; k++)
                 {
                     float ang = k * Mathf.PI / 3f;
-                    Vector3 pos = centerOffset + new Vector3(Mathf.Cos(ang) * radius, 0f, Mathf.Sin(ang) * radius);
-                    BuildSinglePrimitiveVisual(parentContainer, partList, $"{prefix}_Circ{k}", pos, wM * 0.36f, dM * 0.36f, hM, primitiveShape, featureOp, col);
+                    Vector3 pos = baseOff + new Vector3(Mathf.Cos(ang) * radius, 0f, Mathf.Sin(ang) * radius);
+                    BuildSinglePrimitiveVisual(targetParent, partList, $"{prefix}_Circ{k}", pos, wM * 0.36f, dM * 0.36f, hM, primitiveShape, featureOp, col);
                 }
             }
             else
             {
-                BuildSinglePrimitiveVisual(parentContainer, partList, prefix, centerOffset, wM, dM, hM, primitiveShape, featureOp, col);
+                BuildSinglePrimitiveVisual(targetParent, partList, prefix, baseOff, wM, dM, hM, primitiveShape, featureOp, col);
             }
         }
 
@@ -2156,7 +2450,10 @@ namespace KineticCore.Runtime
             Transform parentContainer, List<GameObject> partList, string prefix,
             Vector3 offset, float wM, float dM, float hM, int primitiveShape, int featureOp, Color matColor)
         {
-            if (primitiveShape == 1) // Cylinder (Unity Cylinder default height is 2.0m, so Y scale = hM * 0.5f)
+            // 12 Engineering & Fusion 360 Shapes:
+            // 0: Box / Cube, 1: Cylinder, 2: Sphere, 3: Cone / Frustum, 4: Torus Ring, 5: Hollow Tube,
+            // 6: Hex Prism (M-Nut), 7: Wedge / 45° Ramp, 8: L-Bracket, 9: U-Channel, 10: T-Beam Extrusion, 11: Flanged Bearing
+            if (primitiveShape == 1) // Cylinder
             {
                 AddSubCylinder(parentContainer, partList, $"{prefix}_Cylinder", offset, new Vector3(wM, hM * 0.5f, dM), matColor);
                 return;
@@ -2166,35 +2463,107 @@ namespace KineticCore.Runtime
                 AddSubSphere(parentContainer, partList, $"{prefix}_Sphere", offset, new Vector3(wM, hM, dM), matColor);
                 return;
             }
-            if (primitiveShape == 3) // Torus / Bearing Flange Ring (8 radial segments)
+            if (primitiveShape == 3) // Cone / Frustum (4-tier stepped tapered frustum)
             {
-                float rRing = Mathf.Max(0.008f, Mathf.Min(wM, dM) * 0.38f);
-                float segSize = Mathf.Max(0.004f, wM * 0.24f);
-                for (int k = 0; k < 8; k++)
+                int tiers = 5;
+                float tierH = hM / tiers;
+                for (int t = 0; t < tiers; t++)
                 {
-                    float ang = k * Mathf.PI * 0.25f;
-                    Vector3 p = offset + new Vector3(Mathf.Cos(ang) * rRing, 0f, Mathf.Sin(ang) * rRing);
-                    AddSubCylinder(parentContainer, partList, $"{prefix}_Torus_{k}", p, new Vector3(segSize, hM * 0.25f, segSize), matColor);
+                    float frac = 1f - (t / (float)tiers) * 0.72f;
+                    float yPos = -hM * 0.5f + (t + 0.5f) * tierH;
+                    AddSubCylinder(parentContainer, partList, $"{prefix}_ConeTier_{t}", offset + new Vector3(0f, yPos, 0f), new Vector3(wM * frac, tierH * 0.52f, dM * frac), matColor);
                 }
                 return;
             }
-            if (primitiveShape == 4) // Hollow Tube (outer sleeve + dark inner bore collar)
+            if (primitiveShape == 4) // Torus Ring (10 radial segments)
+            {
+                float rRing = Mathf.Max(0.008f, Mathf.Min(wM, dM) * 0.38f);
+                float segSize = Mathf.Max(0.004f, wM * 0.24f);
+                for (int k = 0; k < 10; k++)
+                {
+                    float ang = k * Mathf.PI * 0.20f;
+                    Vector3 p = offset + new Vector3(Mathf.Cos(ang) * rRing, 0f, Mathf.Sin(ang) * rRing);
+                    AddSubSphere(parentContainer, partList, $"{prefix}_Torus_{k}", p, new Vector3(segSize, hM * 0.55f, segSize), matColor);
+                }
+                return;
+            }
+            if (primitiveShape == 5) // Hollow Tube (outer sleeve + dark inner bore collar)
             {
                 AddSubCylinder(parentContainer, partList, $"{prefix}_TubeOuter", offset, new Vector3(wM, hM * 0.5f, dM), matColor);
                 AddSubCylinder(parentContainer, partList, $"{prefix}_TubeBore", offset, new Vector3(wM * 0.68f, hM * 0.52f, dM * 0.68f), new Color(0.08f, 0.11f, 0.16f));
                 return;
             }
+            if (primitiveShape == 6) // Hex Prism (M-Nut) - 3 intersecting 60° rotated flats + center bore
+            {
+                for (int k = 0; k < 3; k++)
+                {
+                    GameObject hexBar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    hexBar.name = $"{prefix}_HexFlat_{k}";
+                    Destroy(hexBar.GetComponent<Collider>());
+                    hexBar.transform.SetParent(parentContainer, false);
+                    hexBar.transform.localPosition = offset;
+                    hexBar.transform.localRotation = Quaternion.Euler(0f, k * 60f, 0f);
+                    hexBar.transform.localScale = new Vector3(wM * 0.86f, hM, dM * 0.50f);
+                    SetColorSafe(hexBar.GetComponent<Renderer>(), matColor);
+                    partList.Add(hexBar);
+                }
+                AddSubCylinder(parentContainer, partList, $"{prefix}_HexBore", offset, new Vector3(wM * 0.44f, hM * 0.52f, dM * 0.44f), new Color(0.08f, 0.11f, 0.16f));
+                return;
+            }
+            if (primitiveShape == 7) // Wedge / 45° Ramp (base + sloped ramp plate)
+            {
+                float baseT = Mathf.Max(0.004f, hM * 0.18f);
+                AddSubBox(parentContainer, partList, $"{prefix}_WedgeBase", offset + new Vector3(0f, -hM * 0.5f + baseT * 0.5f, 0f), new Vector3(wM, baseT, dM), matColor);
+                AddSubBox(parentContainer, partList, $"{prefix}_WedgeBack", offset + new Vector3(-wM * 0.40f, 0f, 0f), new Vector3(wM * 0.20f, hM, dM), matColor * 0.94f);
+                GameObject slope = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                slope.name = $"{prefix}_WedgeSlope";
+                Destroy(slope.GetComponent<Collider>());
+                slope.transform.SetParent(parentContainer, false);
+                slope.transform.localPosition = offset + new Vector3(wM * 0.05f, 0f, 0f);
+                float tiltDeg = -Mathf.Atan2(hM * 0.82f, wM * 0.82f) * Mathf.Rad2Deg;
+                slope.transform.localRotation = Quaternion.Euler(0f, 0f, tiltDeg);
+                float hyp = Mathf.Sqrt(wM * wM * 0.72f + hM * hM * 0.72f);
+                slope.transform.localScale = new Vector3(hyp, Mathf.Max(0.005f, hM * 0.22f), dM * 0.98f);
+                SetColorSafe(slope.GetComponent<Renderer>(), matColor * 1.08f);
+                partList.Add(slope);
+                return;
+            }
 
             float tWall = 0.0025f; // 2.5mm 3D-print shell wall
-            if (primitiveShape == 5 || featureOp == 3) // L-Bracket Structural Mount with Gusset Ribs
+            if (primitiveShape == 8 || featureOp == 3) // L-Bracket Structural Mount with Gusset Ribs
             {
                 float flangeT = Mathf.Max(0.004f, Mathf.Min(wM, hM) * 0.20f);
                 AddSubBox(parentContainer, partList, $"{prefix}_LBracket_Base", offset + new Vector3(0f, -hM * 0.5f + flangeT * 0.5f, 0f), new Vector3(wM, flangeT, dM), matColor);
                 AddSubBox(parentContainer, partList, $"{prefix}_LBracket_Vert", offset + new Vector3(-wM * 0.5f + flangeT * 0.5f, 0f, 0f), new Vector3(flangeT, hM, dM), matColor * 0.94f);
                 AddSubBox(parentContainer, partList, $"{prefix}_LBracket_GussetF", offset + new Vector3(-wM * 0.18f, -hM * 0.12f, -dM * 0.40f), new Vector3(wM * 0.42f, hM * 0.42f, 0.003f), matColor * 1.15f);
                 AddSubBox(parentContainer, partList, $"{prefix}_LBracket_GussetB", offset + new Vector3(-wM * 0.18f, -hM * 0.12f,  dM * 0.40f), new Vector3(wM * 0.42f, hM * 0.42f, 0.003f), matColor * 1.15f);
+                return;
             }
-            else if (featureOp == 1) // Shell 2.5mm Hollow Enclosure
+            if (primitiveShape == 9) // U-Channel Structural Rail
+            {
+                float wallT = Mathf.Max(0.004f, Mathf.Min(wM, hM) * 0.18f);
+                AddSubBox(parentContainer, partList, $"{prefix}_UChan_Base",  offset + new Vector3(0f, -hM * 0.5f + wallT * 0.5f, 0f), new Vector3(wM, wallT, dM), matColor);
+                AddSubBox(parentContainer, partList, $"{prefix}_UChan_Left",  offset + new Vector3(-wM * 0.5f + wallT * 0.5f, 0f, 0f), new Vector3(wallT, hM, dM), matColor * 0.92f);
+                AddSubBox(parentContainer, partList, $"{prefix}_UChan_Right", offset + new Vector3( wM * 0.5f - wallT * 0.5f, 0f, 0f), new Vector3(wallT, hM, dM), matColor * 0.92f);
+                return;
+            }
+            if (primitiveShape == 10) // T-Beam Extrusion
+            {
+                float webT = Mathf.Max(0.004f, Mathf.Min(wM, hM) * 0.20f);
+                AddSubBox(parentContainer, partList, $"{prefix}_TBeam_TopFlange", offset + new Vector3(0f, hM * 0.5f - webT * 0.5f, 0f), new Vector3(wM, webT, dM), matColor);
+                AddSubBox(parentContainer, partList, $"{prefix}_TBeam_CenterWeb", offset + new Vector3(0f, -webT * 0.25f, 0f), new Vector3(webT, Mathf.Max(0.006f, hM - webT), dM), matColor * 0.92f);
+                return;
+            }
+            if (primitiveShape == 11) // Flanged Bearing Housing (base flange + tall boss hub + precision center bore)
+            {
+                float flangeH = Mathf.Max(0.004f, hM * 0.28f);
+                AddSubCylinder(parentContainer, partList, $"{prefix}_BearingFlange", offset + new Vector3(0f, -hM * 0.5f + flangeH * 0.5f, 0f), new Vector3(wM, flangeH * 0.5f, dM), matColor);
+                AddSubCylinder(parentContainer, partList, $"{prefix}_BearingHub", offset, new Vector3(wM * 0.64f, hM * 0.5f, dM * 0.64f), matColor * 1.08f);
+                AddSubCylinder(parentContainer, partList, $"{prefix}_BearingBore", offset, new Vector3(wM * 0.34f, hM * 0.53f, dM * 0.34f), new Color(0.08f, 0.11f, 0.16f));
+                return;
+            }
+
+            if (featureOp == 1) // Shell 2.5mm Hollow Enclosure
             {
                 AddSubBox(parentContainer, partList, $"{prefix}_Shell_Floor", offset + new Vector3(0f, -hM * 0.5f + tWall * 0.5f, 0f), new Vector3(wM, tWall, dM), matColor * 0.85f);
                 AddSubBox(parentContainer, partList, $"{prefix}_Shell_Front", offset + new Vector3(0f, 0f, -dM * 0.5f + tWall * 0.5f), new Vector3(wM, hM, tWall), matColor);
@@ -2259,13 +2628,15 @@ namespace KineticCore.Runtime
         private void UpdateSampleWorkpieceVisual(double widthMm)
         {
             if (_sampleWorkpiece == null) return;
-            float wMeters = Mathf.Clamp((float)(widthMm * 0.001), 0.020f, 0.160f);
-            float dMeters = Mathf.Clamp((float)(CapturedDepthMm * 0.001), 0.020f, 0.120f);
-            float hMeters = Mathf.Clamp((float)(CapturedHeightMm * 0.001), 0.012f, 0.085f);
+            float wMeters = Mathf.Clamp((float)(widthMm * 0.001), 0.010f, 0.600f);
+            float dMeters = Mathf.Clamp((float)(CapturedDepthMm * 0.001), 0.010f, 0.600f);
+            float hMeters = Mathf.Clamp((float)(CapturedHeightMm * 0.001), 0.010f, 0.600f);
 
             // Calculate exact CAD solid volume (cm³), mass (g), and 3D-print slicer time (min) across primitive shape + multi-body tree
             double rawBoxCm3 = (widthMm * 0.1) * (CapturedDepthMm * 0.1) * (CapturedHeightMm * 0.1);
-            double shapeFactor = (CadPrimitiveShapeIndex == 1) ? 0.785 : ((CadPrimitiveShapeIndex == 2) ? 0.524 : ((CadPrimitiveShapeIndex == 3 || CadPrimitiveShapeIndex == 4) ? 0.42 : 1.0));
+            double shapeFactor = (CadPrimitiveShapeIndex == 1 || CadPrimitiveShapeIndex == 6) ? 0.785
+                : ((CadPrimitiveShapeIndex == 2 || CadPrimitiveShapeIndex == 3 || CadPrimitiveShapeIndex == 7) ? 0.524
+                : ((CadPrimitiveShapeIndex == 4 || CadPrimitiveShapeIndex == 5 || CadPrimitiveShapeIndex >= 8) ? 0.44 : 1.0));
             double fillFactor = (CadFeatureOpIndex == 1) ? 0.28 : ((CadFeatureOpIndex == 3) ? 0.36 : 0.45);
             double patternFactor = (CadPatternModeIndex == 1) ? 1.45 : ((CadPatternModeIndex == 2) ? 1.80 : 1.0);
             double netCm3 = rawBoxCm3 * shapeFactor * fillFactor * patternFactor;
@@ -2286,9 +2657,14 @@ namespace KineticCore.Runtime
 
             if (!_isHoldingWorkpiece)
             {
-                _sampleWorkpiece.localPosition = new Vector3(_workpieceHomeLocalPos.x, hMeters * 0.5f, _workpieceHomeLocalPos.z);
+                Vector3 transOffsetM = ModelTranslationMm * 0.001f;
+                _sampleWorkpiece.localPosition = new Vector3(
+                    _workpieceHomeLocalPos.x + transOffsetM.x,
+                    hMeters * 0.5f + transOffsetM.y,
+                    _workpieceHomeLocalPos.z + transOffsetM.z);
+                _sampleWorkpiece.localRotation = Quaternion.Euler(ModelTiltDeg);
                 if (_workpieceLabel != null)
-                    _workpieceLabel.transform.localPosition = _workpieceHomeLocalPos + new Vector3(0f, hMeters + 0.022f, 0f);
+                    _workpieceLabel.transform.localPosition = _sampleWorkpiece.localPosition + new Vector3(0f, hMeters * 0.5f + 0.028f, 0f);
             }
 
             // Hide root cube mesh and render the multi-part Parametric Fusion CAD Solid inside _sampleWorkpiece
@@ -2297,7 +2673,7 @@ namespace KineticCore.Runtime
             Color matCol = _isHoldingWorkpiece ? new Color(0.25f, 1.0f, 0.55f) : CadMaterialColors[CadMaterialIndex % CadMaterialColors.Length];
             RebuildCadFeatureSubParts(_sampleWorkpiece, _workpieceCadSubParts, wMeters, dMeters, hMeters, matCol);
 
-            // Also update the 1:1 Hand Print Preview assembly so holding it in your hand shows the live CAD features!
+            // Also update the 1:1 Right-Hand Print Preview assembly so holding it in your Right Hand shows the live CAD features!
             if (_handInspectRoot != null)
             {
                 RebuildCadFeatureSubParts(_handInspectRoot.transform, _handInspectSubParts, wMeters, dMeters, hMeters, CadMaterialColors[CadMaterialIndex % CadMaterialColors.Length]);
@@ -2305,8 +2681,8 @@ namespace KineticCore.Runtime
                 {
                     _handInspectLabel.transform.localPosition = new Vector3(0f, hMeters * 0.5f + 0.032f, 0f);
                     _handInspectLabel.text =
-                        $"1:1 PRINT IN HAND [{ActivePrimitiveShapeName} | {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")} | {ActivePatternModeName}]\n" +
-                        $"{widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g {CadMaterialNames[CadMaterialIndex]} (~{EstimatedPrintMinutes}m print)";
+                        $"1:1 MODEL ON RIGHT HAND [{ActivePrimitiveShapeName} | {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")} | {ActivePatternModeName}]\n" +
+                        $"{widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | Tilt({ModelTiltDeg.x:F0}°,{ModelTiltDeg.y:F0}°,{ModelTiltDeg.z:F0}°) | {CadPartMassGrams:F1}g";
                 }
             }
 
@@ -2314,7 +2690,7 @@ namespace KineticCore.Runtime
             {
                 _workpieceLabel.text = _isHoldingWorkpiece
                     ? $"GRASPED CAD ASSEMBLY ({totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")})\nDeliver to Drop Zone ->"
-                    : $"1:1 CAD [{ActivePrimitiveShapeName} | {CadFeatureOpNames[CadFeatureOpIndex]} | {totalBodies}B]\n{widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | {CadPartMassGrams:F1}g";
+                    : $"1:1 CAD [{ActivePrimitiveShapeName} | {CadFeatureOpNames[CadFeatureOpIndex]} | {totalBodies}B]\n{widthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | Tilt({ModelTiltDeg.x:F0}°,{ModelTiltDeg.y:F0}°,{ModelTiltDeg.z:F0}°)";
             }
 
             UpdateInPlaceTwinAndFaceHandles(wMeters, dMeters, hMeters);
@@ -2501,20 +2877,27 @@ namespace KineticCore.Runtime
             if (TargetTransform != null)
                 TargetTransform.position = DeskWorkspaceOrigin.TransformPoint(ManualTargetLocalPos);
 
-            // Update "Hold-In-Your-Hands" 1:1 Physical Print Preview position & rotation
+            // Update "Hold-In-Your-Hands" 1:1 Physical Print Preview on the RIGHT HAND (so it never collides with Left-Hand Palette!)
             if (HandInspectActive && _handInspectRoot != null)
             {
                 if (_cachedTipReader == null) _cachedTipReader = FindAnyObjectByType<HandFingertipReader>();
-                if (!IsFlatEditorMode && _cachedTipReader != null && _cachedTipReader.LeftValid)
+                if (!IsFlatEditorMode && _cachedTipReader != null && (_cachedTipReader.RightValid || _cachedTipReader.LeftValid))
                 {
-                    _handInspectRoot.transform.position = Vector3.Lerp(_handInspectRoot.transform.position, _cachedTipReader.LeftWorld + Vector3.up * 0.045f, Time.deltaTime * 14f);
+                    Vector3 handPos = _cachedTipReader.RightValid ? _cachedTipReader.RightWorld : _cachedTipReader.LeftWorld;
+                    _handInspectRoot.transform.position = Vector3.Lerp(_handInspectRoot.transform.position, handPos + Vector3.up * 0.055f, Time.deltaTime * 14f);
                     _handInspectRoot.transform.Rotate(Vector3.up, Time.deltaTime * 28f, Space.Self);
                 }
                 else
                 {
-                    _handInspectRoot.transform.localPosition = new Vector3(-0.06f, 0.145f, -0.05f);
-                    _handInspectRoot.transform.localRotation = Quaternion.Euler(15f, Time.time * 38f, 0f);
+                    _handInspectRoot.transform.localPosition = new Vector3(0.16f, 0.145f, -0.05f);
+                    _handInspectRoot.transform.localRotation = Quaternion.Euler(ModelTiltDeg.x + 15f, Time.time * 38f + ModelTiltDeg.y, ModelTiltDeg.z);
                 }
+            }
+
+            // Gently rotate the In-VR Exported 3D Model Gallery turntable on the right side of the desk
+            if (_exportedGalleryRoot != null && _exportedGalleryRoot.activeSelf && _exportedGalleryModelContainer != null)
+            {
+                _exportedGalleryModelContainer.Rotate(Vector3.up, Time.deltaTime * 24f, Space.World);
             }
 
             if (CurrentChain != null && _theta != null && TargetTransform != null && _mechanismRoot != null)
@@ -2550,9 +2933,16 @@ namespace KineticCore.Runtime
 
             if (move.sqrMagnitude > 0.0001f)
             {
-                AutoOrbitTarget = false;
-                PuppetActive = true;
-                ManualTargetLocalPos += move.normalized * speed;
+                if (PureCadStudioMode)
+                {
+                    TranslateModelMm(move.normalized * (speed * 250f));
+                }
+                else
+                {
+                    AutoOrbitTarget = false;
+                    PuppetActive = true;
+                    ManualTargetLocalPos += move.normalized * speed;
+                }
             }
 
             if (KInput.GetKeyDown(KeyCode.G)) SynthesizeFast();
@@ -2563,14 +2953,14 @@ namespace KineticCore.Runtime
             if (KInput.GetKeyDown(KeyCode.J) || KInput.GetKeyDown(KeyCode.Alpha3)) CycleCadBooleanMode();
             if (KInput.GetKeyDown(KeyCode.L) || KInput.GetKeyDown(KeyCode.Alpha4)) CycleCadPatternArray();
             if (KInput.GetKeyDown(KeyCode.X) || KInput.GetKeyDown(KeyCode.Alpha5)) CycleDirectPushPullExtrude();
+            if (KInput.GetKeyDown(KeyCode.V) || KInput.GetKeyDown(KeyCode.Alpha6)) CycleModelTiltAngles();
             if (KInput.GetKeyDown(KeyCode.F)) CycleCadFeatureOp();
             if (KInput.GetKeyDown(KeyCode.M)) CycleCadMaterial();
             if (KInput.GetKeyDown(KeyCode.I)) ToggleHandInspectMode();
             if (KInput.GetKeyDown(KeyCode.H)) SynthesizeDeep();
             if (KInput.GetKeyDown(KeyCode.C)) ExecuteGhostCarve();
-            if (KInput.GetKeyDown(KeyCode.V)) ToggleEnvelopeRecording();
-            if (KInput.GetKeyDown(KeyCode.LeftBracket)) ScrubDimensionMm(-5.0);
-            if (KInput.GetKeyDown(KeyCode.RightBracket)) ScrubDimensionMm(+5.0);
+            if (KInput.GetKeyDown(KeyCode.LeftBracket)) ScrubDimensionMm(-10.0);
+            if (KInput.GetKeyDown(KeyCode.RightBracket)) ScrubDimensionMm(+10.0);
             if (KInput.GetKeyDown(KeyCode.U)) ExportUrdf();
             if (KInput.GetKeyDown(KeyCode.P)) TogglePuppet();
             if (KInput.GetKeyDown(KeyCode.O)) ToggleAutoOrbit();
@@ -2585,33 +2975,33 @@ namespace KineticCore.Runtime
             Event e = Event.current;
             if (e != null && e.type == EventType.KeyDown)
             {
-                float step = (e.shift ? 0.03f : 0.012f);
+                float stepMm = (e.shift ? 15f : 5f);
                 switch (e.keyCode)
                 {
-                    case KeyCode.W: case KeyCode.UpArrow:    AutoOrbitTarget = false; PuppetActive = true; ManualTargetLocalPos += Vector3.forward * step; e.Use(); break;
-                    case KeyCode.S: case KeyCode.DownArrow:  AutoOrbitTarget = false; PuppetActive = true; ManualTargetLocalPos += Vector3.back * step; e.Use(); break;
-                    case KeyCode.A: case KeyCode.LeftArrow:  AutoOrbitTarget = false; PuppetActive = true; ManualTargetLocalPos += Vector3.left * step; e.Use(); break;
-                    case KeyCode.D: case KeyCode.RightArrow: AutoOrbitTarget = false; PuppetActive = true; ManualTargetLocalPos += Vector3.right * step; e.Use(); break;
-                    case KeyCode.E: AutoOrbitTarget = false; PuppetActive = true; ManualTargetLocalPos += Vector3.up * step; e.Use(); break;
-                    case KeyCode.Q: AutoOrbitTarget = false; PuppetActive = true; ManualTargetLocalPos += Vector3.down * step; e.Use(); break;
+                    case KeyCode.W: case KeyCode.UpArrow:    TranslateModelMm(new Vector3(0f, 0f, stepMm)); e.Use(); break;
+                    case KeyCode.S: case KeyCode.DownArrow:  TranslateModelMm(new Vector3(0f, 0f, -stepMm)); e.Use(); break;
+                    case KeyCode.A: case KeyCode.LeftArrow:  TranslateModelMm(new Vector3(-stepMm, 0f, 0f)); e.Use(); break;
+                    case KeyCode.D: case KeyCode.RightArrow: TranslateModelMm(new Vector3(stepMm, 0f, 0f)); e.Use(); break;
+                    case KeyCode.E: TranslateModelMm(new Vector3(0f, stepMm, 0f)); e.Use(); break;
+                    case KeyCode.Q: TranslateModelMm(new Vector3(0f, -stepMm, 0f)); e.Use(); break;
                 }
             }
 
             int totalBodies = 1 + _stampedCadBodies.Count;
-            GUI.Box(new Rect(12, 12, 565, 285), "");
-            GUILayout.BeginArea(new Rect(20, 18, 548, 273));
+            GUI.Box(new Rect(12, 12, 600, 325), "");
+            GUILayout.BeginArea(new Rect(20, 18, 584, 312));
             GUILayout.Label($"<b>KINETIC-CAD XR | INTERACTIVE 3D CAD STUDIO (FUSION 360 FOR QUEST 3)</b> ({totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")})");
-            GUILayout.Label($"Create: [{ActivePrimitiveShapeName}] | Combine: [{ActiveBooleanModeName}] | Pattern: [{ActivePatternModeName}] | {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm ({CadPartMassGrams:F1}g)");
-            GUILayout.Label($"FUSION 360 TIP: Drag +X / +Y / +Z handles on 3D Model to Extrude, or use Left-Hand Palette & Desk Toolbar");
+            GUILayout.Label($"Create ({CadPrimitiveShapeIndex + 1}/12): [{ActivePrimitiveShapeName}] | Combine: [{ActiveBooleanModeName}] | {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm (Max 600mm)");
+            GUILayout.Label($"6-DoF CAD Pose: Move({ModelTranslationMm.x:F0},{ModelTranslationMm.y:F0},{ModelTranslationMm.z:F0})mm | Tilt Pitch X:{ModelTiltDeg.x:F0}° Yaw Y:{ModelTiltDeg.y:F0}° Roll Z:{ModelTiltDeg.z:F0}°");
             GUILayout.Label($"Status: {StatusMessage}");
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"W:{ManualTestWidthMm:F0}mm", GUILayout.Width(62));
-            double newW = GUILayout.HorizontalSlider((float)ManualTestWidthMm, 20f, 250f, GUILayout.Width(95));
-            GUILayout.Label($"D:{CapturedDepthMm:F0}mm", GUILayout.Width(62));
-            double newD = GUILayout.HorizontalSlider((float)CapturedDepthMm, 20f, 180f, GUILayout.Width(85));
-            GUILayout.Label($"H:{CapturedHeightMm:F0}mm", GUILayout.Width(62));
-            double newH = GUILayout.HorizontalSlider((float)CapturedHeightMm, 12f, 120f, GUILayout.Width(85));
+            GUILayout.Label($"W:{ManualTestWidthMm:F0}mm", GUILayout.Width(65));
+            double newW = GUILayout.HorizontalSlider((float)ManualTestWidthMm, 10f, 600f, GUILayout.Width(105));
+            GUILayout.Label($"D:{CapturedDepthMm:F0}mm", GUILayout.Width(65));
+            double newD = GUILayout.HorizontalSlider((float)CapturedDepthMm, 10f, 600f, GUILayout.Width(105));
+            GUILayout.Label($"H:{CapturedHeightMm:F0}mm", GUILayout.Width(65));
+            double newH = GUILayout.HorizontalSlider((float)CapturedHeightMm, 10f, 600f, GUILayout.Width(105));
             if (System.Math.Abs(newW - ManualTestWidthMm) > 0.5 || System.Math.Abs(newD - CapturedDepthMm) > 0.5 || System.Math.Abs(newH - CapturedHeightMm) > 0.5)
             {
                 ManualTestWidthMm = newW;
@@ -2622,20 +3012,35 @@ namespace KineticCore.Runtime
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button($"Create: {ActivePrimitiveShapeName} [T]")) CycleCadPrimitiveShape();
+            GUILayout.Label($"Tilt X:{ModelTiltDeg.x:F0}°", GUILayout.Width(68));
+            float newRx = Mathf.Round(GUILayout.HorizontalSlider(ModelTiltDeg.x, -180f, 180f, GUILayout.Width(100)) / 5f) * 5f;
+            GUILayout.Label($"Tilt Y:{ModelTiltDeg.y:F0}°", GUILayout.Width(68));
+            float newRy = Mathf.Round(GUILayout.HorizontalSlider(ModelTiltDeg.y, -180f, 180f, GUILayout.Width(100)) / 5f) * 5f;
+            GUILayout.Label($"Tilt Z:{ModelTiltDeg.z:F0}°", GUILayout.Width(68));
+            float newRz = Mathf.Round(GUILayout.HorizontalSlider(ModelTiltDeg.z, -180f, 180f, GUILayout.Width(100)) / 5f) * 5f;
+            if (Mathf.Abs(newRx - ModelTiltDeg.x) > 0.5f || Mathf.Abs(newRy - ModelTiltDeg.y) > 0.5f || Mathf.Abs(newRz - ModelTiltDeg.z) > 0.5f)
+            {
+                ModelTiltDeg = new Vector3(newRx, newRy, newRz);
+                UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button($"Create ({CadPrimitiveShapeIndex + 1}/12): {ActivePrimitiveShapeName} [T]")) CycleCadPrimitiveShape();
             if (GUILayout.Button($"+Add / Cut Body ({totalBodies}) [B]")) StampNewCadBodyToAssembly();
             if (GUILayout.Button($"Combine: {ActiveBooleanModeName.Split(' ')[0]} [J]")) CycleCadBooleanMode();
-            if (GUILayout.Button($"Pattern: {ActivePatternModeName} [L]")) CycleCadPatternArray();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Extrude / Pull [X]")) CycleDirectPushPullExtrude();
+            if (GUILayout.Button($"Rotate / Tilt 3D [V]")) CycleModelTiltAngles();
+            if (GUILayout.Button($"Pattern: {ActivePatternModeName} [L]")) CycleCadPatternArray();
             if (GUILayout.Button($"Modify: {CadFeatureOpNames[CadFeatureOpIndex]} [F]")) CycleCadFeatureOp();
-            if (GUILayout.Button($"Material: {CadMaterialNames[CadMaterialIndex].Split(' ')[0]} [M]")) CycleCadMaterial();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button(HandInspectActive ? "Hold 1:1 Model: ON [I]" : "Hold 1:1 Model [I]")) ToggleHandInspectMode();
+            if (GUILayout.Button($"Material: {CadMaterialNames[CadMaterialIndex].Split(' ')[0]} [M]")) CycleCadMaterial();
+            if (GUILayout.Button(HandInspectActive ? "Right Hand 1:1: ON [I]" : "Hold 1:1 (Right Hand) [I]")) ToggleHandInspectMode();
             if (GUILayout.Button("Export .STL / .OBJ [U]")) ExportUrdf();
             if (GUILayout.Button("Center Desk [R]")) ResetPose();
             GUILayout.EndHorizontal();
@@ -2655,9 +3060,9 @@ namespace KineticCore.Runtime
 
             _vrHologramText.text =
                 $"KINETIC-CAD XR | INTERACTIVE 3D CAD STUDIO (FUSION 360 FOR QUEST 3)\n" +
-                $"[{s1}]Create: [{ActivePrimitiveShapeName}]  |  [{s2}]Combine: [{ActiveBooleanModeName}] ({totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")})  |  [{s3}]Pattern: [{ActivePatternModeName}]\n" +
-                $"Extrude Dimensions: {ManualTestWidthMm:F0} mm (W) x {CapturedDepthMm:F0} mm (D) x {CapturedHeightMm:F0} mm (H)  |  Modify: {CadFeatureOpNames[CadFeatureOpIndex]}\n" +
-                $"Material: {CadMaterialNames[CadMaterialIndex]}  |  Volume: {CadPartVolumeCm3:F1} cm³  |  Mass: {CadPartMassGrams:F1} g (~{EstimatedPrintMinutes} min 3D Print)\n" +
+                $"[{s1}]Create ({CadPrimitiveShapeIndex + 1}/12): [{ActivePrimitiveShapeName}]  |  [{s2}]Combine: [{ActiveBooleanModeName}] ({totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")})  |  [{s3}]Pattern: [{ActivePatternModeName}]\n" +
+                $"Dimensions (10-600mm): {ManualTestWidthMm:F0}W x {CapturedDepthMm:F0}D x {CapturedHeightMm:F0}H mm  |  3D Tilt: Pitch X:{ModelTiltDeg.x:F0}° Yaw Y:{ModelTiltDeg.y:F0}° Roll Z:{ModelTiltDeg.z:F0}°\n" +
+                $"Modify: {CadFeatureOpNames[CadFeatureOpIndex]}  |  Material: {CadMaterialNames[CadMaterialIndex]}  |  Mass: {CadPartMassGrams:F1}g (~{EstimatedPrintMinutes}m 3D Print)\n" +
                 $"{StatusMessage}";
 
             if (_urdfInspectorText != null && CurrentSpec != null)
@@ -2670,12 +3075,15 @@ namespace KineticCore.Runtime
                 }
 
                 string rName = CurrentSpec.robotName ?? "kinetic_cad";
+                string whereSaved = Application.isEditor
+                    ? "PC Path: E:\\Unity\\KineticCAD_XR\\Exports\\"
+                    : "Quest 3 Path: /sdcard/Android/data/com.DefaultCompany.KineticCADXR/files/";
                 _urdfInspectorText.text =
-                    $"=== 3D PRINT (.STL / .OBJ) & CAD EXPORT INSPECTOR ===\n" +
-                    $"Export Files: {rName}_cad.stl  |  {rName}_cad.obj\n" +
-                    $"  CAD Bodies: {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")} [{ActivePrimitiveShapeName} | {ActiveBooleanModeName} | {ActivePatternModeName}]\n" +
-                    $"  Modify Feature: {CadFeatureOpNames[CadFeatureOpIndex]}  |  Slicer Est: {CadPartMassGrams:F1}g (~{EstimatedPrintMinutes} min)\n" +
-                    $"  Total Exports Saved: {CareerUrdfExports}  |  Poke [EXPORT .STL / .OBJ] to save 3D mesh";
+                    $"=== 3D PRINT (.STL / .OBJ) & EXPORTED MODEL VIEWER ===\n" +
+                    $"Export Files: {rName}_cad.stl  &  {rName}_cad.obj  (Exports Saved: {CareerUrdfExports})\n" +
+                    $"  {whereSaved}\n" +
+                    $"  In-VR Preview: Exported 3D Model spawns on Right Desk Turntable when you poke [EXPORT .STL / .OBJ]!\n" +
+                    $"  Right-Hand Preview: Poke [HOLD 1:1 MODEL] to hold the 1:1 model on your RIGHT HAND!";
             }
 
             if (_specSheetText != null && CurrentSpec != null)
@@ -2688,11 +3096,11 @@ namespace KineticCore.Runtime
                 }
 
                 _specSheetText.text =
-                    $"=== FUSION 360 CONTROLS & PROPERTIES ===\n" +
-                    $"1. CREATE SHAPE: Box, Cylinder, Sphere, Torus, Tube, L-Bracket\n" +
-                    $"2. EXTRUDE / PULL: Drag +X (Red), +Y (Green), +Z (Blue) handles on 3D Model\n" +
-                    $"3. COMBINE (JOIN / CUT HOLE): Touch 3D Model to aim, then poke [+ADD / CUT BODY]\n" +
-                    $"4. MEASURE REAL OBJECT: Point both index fingers on a real object for 0.9s";
+                    $"=== FUSION 360 6-DoF CAD CONTROLS (12 SHAPES, UP TO 600MM) ===\n" +
+                    $"1. CREATE (12 SHAPES): Box, Cylinder, Sphere, Cone, Torus, Tube, Hex Nut, Wedge, L-Bracket, U-Channel, T-Beam, Bearing\n" +
+                    $"2. EXTRUDE (UP TO 600MM): Drag +X (Red), +Y (Green), +Z (Blue) handles on 3D Model\n" +
+                    $"3. 3D TILT / ROTATE: Drag TILT X° (Pitch), TILT Y° (Yaw), TILT Z° (Roll) handles or poke [ROTATE / TILT]\n" +
+                    $"4. COMBINE & EXPORT: Touch model + poke [+ADD / CUT BODY] -> Poke [EXPORT .STL / .OBJ] to view on Desk Gallery!";
             }
         }
 
@@ -2834,12 +3242,15 @@ namespace KineticCore.Runtime
                     }
                     catch { }
                 }
+                LastExportedStlPath = stlPath;
+                LastExportedObjPath = objPath;
                 _exportFlashTimer = 0.8f; // Flash links bright emerald green to confirm STL + OBJ + URDF export!
                 CareerUrdfExports++;
                 PlayerPrefs.SetInt("KineticCAD_TotalExports", CareerUrdfExports);
                 PlayerPrefs.Save();
+                RefreshExportedModelGallery(stlPath, objPath);
                 SpatialTactileAudio.Instance?.PlayExportSuccess();
-                StatusMessage = $"EXPORTED 3D CAD -> {Path.GetFileName(stlPath)} + {Path.GetFileName(objPath)} ({1 + _stampedCadBodies.Count} Bodies)";
+                StatusMessage = $"EXPORTED & DISPLAYED ON RIGHT TURNTABLE -> {Path.GetFileName(stlPath)} + {Path.GetFileName(objPath)} ({1 + _stampedCadBodies.Count} Bodies)";
                 Debug.Log($"[KineticCAD] Exported URDF: {LastExportedUrdfPath} | STL: {stlPath} | OBJ: {objPath} | CBF: {cbfPath}");
                 WriteDiagnosticState("ExportUrdf");
             }

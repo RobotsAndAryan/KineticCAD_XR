@@ -15,16 +15,21 @@ namespace KineticCore.Export
     public class StampedCadBodySpec
     {
         public string bodyName = "CadBody_1";
-        public int primitiveShape = 0; // 0=Cube/Box, 1=Cylinder, 2=Sphere, 3=Torus Ring, 4=Hollow Tube, 5=L-Bracket
+        public int primitiveShape = 0; // 0..11 (12 Fusion 360 CAD primitives)
         public int booleanMode = 0;    // 0=Join (Union), 1=Cut (Subtract), 2=Intersect
         public int patternMode = 0;    // 0=1x Single, 1=3x Linear Pattern, 2=6x Circular Radial Pattern
         public int featureOp = 0;      // 0=Solid Extrude, 1=Shell 2.5mm, 2=Chamfer+M4 Bosses, 3=L-Bracket
         public double widthMm = 70.0;
         public double depthMm = 55.0;
         public double heightMm = 42.0;
+        // 3 Translations (mm)
         public double localOffsetXMm = 0.0;
         public double localOffsetYMm = 0.0;
         public double localOffsetZMm = 0.0;
+        // 3 Angular Rotations / Tilts (degrees)
+        public double localRotXDeg = 0.0;
+        public double localRotYDeg = 0.0;
+        public double localRotZDeg = 0.0;
     }
 
     /// <summary>
@@ -395,14 +400,15 @@ namespace KineticCore.Export
             int primitiveShape = 0,
             int booleanMode = 0,
             int patternMode = 0,
-            IList<StampedCadBodySpec> stampedBodies = null)
+            IList<StampedCadBodySpec> stampedBodies = null,
+            bool includeRobotLinks = false)
         {
             StringBuilder sb = new StringBuilder(32768);
-            string solidName = Sanitize(string.IsNullOrEmpty(spec?.robotName) ? "kinetic_cad_mechanism" : spec.robotName);
+            string solidName = Sanitize(string.IsNullOrEmpty(spec?.robotName) ? "kinetic_cad_model" : spec.robotName);
             sb.AppendLine($"solid {solidName}");
 
-            // 1. Primary Captured / Sculpted Parametric CAD Solid (offset at X = -120mm on build plate for clean multi-part slicing)
-            AppendCadBodyWithPatternStl(sb, -120.0, 0.0, 0.0, capturedWidthMm, capturedDepthMm, capturedHeightMm, primitiveShape, cadFeatureOp, patternMode);
+            // 1. Primary Captured / Sculpted Parametric CAD Solid centered at (0,0,0) on the 3D printer build plate
+            AppendCadBodyWithPatternStl(sb, 0.0, 0.0, 0.0, capturedWidthMm, capturedDepthMm, capturedHeightMm, primitiveShape, cadFeatureOp, patternMode);
 
             // 2. Additional Stamped Multi-Body CAD Primitives from Left-Hand Spatial CAD Palette
             if (stampedBodies != null)
@@ -413,7 +419,7 @@ namespace KineticCore.Export
                     if (body == null) continue;
                     AppendCadBodyWithPatternStl(
                         sb,
-                        -120.0 + body.localOffsetXMm,
+                        body.localOffsetXMm,
                         body.localOffsetZMm,
                         body.localOffsetYMm,
                         body.widthMm,
@@ -425,8 +431,8 @@ namespace KineticCore.Export
                 }
             }
 
-            // 3. Articulated Modular Links
-            if (spec?.links != null)
+            // 3. Optional Articulated Modular Links (only when includeRobotLinks is true)
+            if (includeRobotLinks && spec?.links != null)
             {
                 for (int i = 0; i < spec.links.Length; i++)
                 {
@@ -441,15 +447,6 @@ namespace KineticCore.Export
                     AppendStlBox(sb, cx, cy, cz, sx, sy, sz);
                 }
             }
-
-            // 4. Parallel-jaw gripper assembly at end-effector home position (in mm)
-            double eeX = (spec?.endEffectorHomePosition != null && spec.endEffectorHomePosition.Length == 3) ? spec.endEffectorHomePosition[0] * 1000.0 : 220.0;
-            double eeZ = (spec?.endEffectorHomePosition != null && spec.endEffectorHomePosition.Length == 3) ? spec.endEffectorHomePosition[1] * 1000.0 : 60.0;
-            double jawSpanMm = System.Math.Max(24.0, System.Math.Min(220.0, spec != null ? spec.targetCaliperWidthMm : 70.0));
-
-            AppendStlBox(sb, eeX, 0.0, eeZ, 10.0, jawSpanMm + 16.0, 8.0);
-            AppendStlBox(sb, eeX + 14.0, -jawSpanMm * 0.5, eeZ, 28.0, 6.0, 12.0);
-            AppendStlBox(sb, eeX + 14.0,  jawSpanMm * 0.5, eeZ, 28.0, 6.0, 12.0);
 
             sb.AppendLine($"endsolid {solidName}");
             return sb.ToString();
@@ -494,7 +491,7 @@ namespace KineticCore.Export
 
             if (primitiveShape == 1) // Cylinder
             {
-                AppendStlCylinder(sb, offsetX, offsetY, baseZ + h * 0.5, w, d, h, 16);
+                AppendStlCylinder(sb, offsetX, offsetY, baseZ + h * 0.5, w, d, h, 18);
                 return;
             }
             if (primitiveShape == 2) // Sphere (Geodesic / UV Sphere)
@@ -502,7 +499,17 @@ namespace KineticCore.Export
                 AppendStlSphere(sb, offsetX, offsetY, baseZ + h * 0.5, w, d, h, 6, 12);
                 return;
             }
-            if (primitiveShape == 3) // Torus / Flange Ring (8-segment octagonal ring)
+            if (primitiveShape == 3) // Cone / Tapered Frustum (4 stacked tapered rings)
+            {
+                double stepH = h / 4.0;
+                for (int s = 0; s < 4; s++)
+                {
+                    double taper = 1.0 - (s * 0.21);
+                    AppendStlCylinder(sb, offsetX, offsetY, baseZ + (s + 0.5) * stepH, w * taper, d * taper, stepH, 14);
+                }
+                return;
+            }
+            if (primitiveShape == 4) // Torus / Flange Ring (8-segment octagonal ring)
             {
                 double rRing = System.Math.Max(8.0, System.Math.Min(w, d) * 0.38);
                 double tubeW = System.Math.Max(4.0, w * 0.22);
@@ -514,19 +521,57 @@ namespace KineticCore.Export
                 }
                 return;
             }
-            if (primitiveShape == 4) // Hollow Tube (outer cylinder + inner flange walls)
+            if (primitiveShape == 5) // Hollow Tube / Pipe
             {
                 AppendStlCylinder(sb, offsetX, offsetY, baseZ + h * 0.5, w, d, h, 16);
                 AppendStlCylinder(sb, offsetX, offsetY, baseZ + h + 2.0, w * 0.72, d * 0.72, 4.0, 12);
                 return;
             }
-            if (primitiveShape == 5 || cadFeatureOp == 3) // L-Bracket Structural Mount
+            if (primitiveShape == 6) // Hex Prism (6-sided M-Nut / Hex Bolt Head)
+            {
+                AppendStlCylinder(sb, offsetX, offsetY, baseZ + h * 0.5, w, d, h, 6);
+                return;
+            }
+            if (primitiveShape == 7) // Wedge / 45° Sloped Ramp (stepped sloped prism)
+            {
+                double stepW = w / 4.0;
+                for (int s = 0; s < 4; s++)
+                {
+                    double sh = h * ((s + 1) / 4.0);
+                    double sx = offsetX - w * 0.5 + (s + 0.5) * stepW;
+                    AppendStlBox(sb, sx, offsetY, baseZ + sh * 0.5, stepW, d, sh);
+                }
+                return;
+            }
+            if (primitiveShape == 8 || cadFeatureOp == 3) // L-Bracket Structural Mount
             {
                 double t = System.Math.Max(4.0, System.Math.Min(w, h) * 0.16);
                 AppendStlBox(sb, offsetX, offsetY, baseZ + t * 0.5, w, d, t);
                 AppendStlBox(sb, offsetX - (w - t) * 0.5, offsetY, baseZ + h * 0.5, t, d, h);
                 AppendStlBox(sb, offsetX - w * 0.22, offsetY - (d - t) * 0.42, baseZ + h * 0.28, w * 0.35, t, h * 0.35);
                 AppendStlBox(sb, offsetX - w * 0.22, offsetY + (d - t) * 0.42, baseZ + h * 0.28, w * 0.35, t, h * 0.35);
+                return;
+            }
+            if (primitiveShape == 9) // U-Channel / C-Clevis Bracket
+            {
+                double t = System.Math.Max(4.0, System.Math.Min(w, h) * 0.16);
+                AppendStlBox(sb, offsetX, offsetY, baseZ + t * 0.5, w, d, t);
+                AppendStlBox(sb, offsetX - (w - t) * 0.5, offsetY, baseZ + h * 0.5, t, d, h);
+                AppendStlBox(sb, offsetX + (w - t) * 0.5, offsetY, baseZ + h * 0.5, t, d, h);
+                return;
+            }
+            if (primitiveShape == 10) // T-Beam / Structural Extrusion Profile
+            {
+                double t = System.Math.Max(4.0, System.Math.Min(w, h) * 0.18);
+                AppendStlBox(sb, offsetX, offsetY, baseZ + t * 0.5, w, d, t);
+                AppendStlBox(sb, offsetX, offsetY, baseZ + h * 0.5, t, d, h);
+                return;
+            }
+            if (primitiveShape == 11) // Flanged Bearing Housing (Base Flange + Cylindrical Boss)
+            {
+                double flangeH = System.Math.Max(4.0, h * 0.25);
+                AppendStlBox(sb, offsetX, offsetY, baseZ + flangeH * 0.5, w, d, flangeH);
+                AppendStlCylinder(sb, offsetX, offsetY, baseZ + h * 0.55, w * 0.65, d * 0.65, h * 0.90, 16);
                 return;
             }
 
@@ -563,29 +608,30 @@ namespace KineticCore.Export
             int primitiveShape = 0,
             int booleanMode = 0,
             int patternMode = 0,
-            IList<StampedCadBodySpec> stampedBodies = null)
+            IList<StampedCadBodySpec> stampedBodies = null,
+            bool includeRobotLinks = false)
         {
             StringBuilder sb = new StringBuilder(24576);
-            string solidName = Sanitize(string.IsNullOrEmpty(spec?.robotName) ? "kinetic_cad_mechanism" : spec.robotName);
-            sb.AppendLine($"# KineticCAD XR — Spatial Fusion 360 Wavefront OBJ Export");
-            sb.AppendLine($"# Robot/Assembly: {solidName} | Material: {materialName} | PrimShape: {primitiveShape} | Pattern: {patternMode} | Units: millimeters");
+            string solidName = Sanitize(string.IsNullOrEmpty(spec?.robotName) ? "kinetic_cad_model" : spec.robotName);
+            sb.AppendLine($"# KineticCAD XR — Interactive 3D CAD Studio (Fusion 360 for Quest 3) Wavefront OBJ Export");
+            sb.AppendLine($"# Model: {solidName} | Material: {materialName} | PrimShape: {primitiveShape} | Pattern: {patternMode} | Units: millimeters");
             int vOffset = 1;
 
-            // Group 1: Primary Captured / Sculpted 1:1 Real-World Parametric CAD Solid
+            // Group 1: Primary Sculpted 1:1 Parametric CAD Solid centered at (0,0,0)
             sb.AppendLine($"o Primary_CAD_Solid_Shape{primitiveShape}_Op{cadFeatureOp}");
-            AppendCadBodyWithPatternObj(sb, ref vOffset, -120.0, 0.0, 0.0, capturedWidthMm, capturedDepthMm, capturedHeightMm, primitiveShape, cadFeatureOp, patternMode);
+            AppendCadBodyWithPatternObj(sb, ref vOffset, 0.0, 0.0, 0.0, capturedWidthMm, capturedDepthMm, capturedHeightMm, primitiveShape, cadFeatureOp, patternMode);
 
-            // Group 2: Additional Stamped Multi-Body CAD Primitives from Left-Hand Spatial CAD Palette
+            // Group 2: Additional Combined Multi-Body CAD Primitives
             if (stampedBodies != null)
             {
                 for (int b = 0; b < stampedBodies.Count; b++)
                 {
                     StampedCadBodySpec body = stampedBodies[b];
                     if (body == null) continue;
-                    sb.AppendLine($"o Stamped_{Sanitize(body.bodyName)}_Shape{body.primitiveShape}_Bool{body.booleanMode}");
+                    sb.AppendLine($"o Combined_{Sanitize(body.bodyName)}_Shape{body.primitiveShape}_Bool{body.booleanMode}");
                     AppendCadBodyWithPatternObj(
                         sb, ref vOffset,
-                        -120.0 + body.localOffsetXMm,
+                        body.localOffsetXMm,
                         body.localOffsetZMm,
                         body.localOffsetYMm,
                         body.widthMm,
@@ -597,8 +643,8 @@ namespace KineticCore.Export
                 }
             }
 
-            // Group 3: Modular Kinematic Links
-            if (spec?.links != null)
+            // Group 3: Optional Modular Kinematic Links
+            if (includeRobotLinks && spec?.links != null)
             {
                 for (int i = 0; i < spec.links.Length; i++)
                 {
@@ -614,15 +660,6 @@ namespace KineticCore.Export
                     AppendObjBox(sb, ref vOffset, cx, cy, cz, sx, sy, sz);
                 }
             }
-
-            // Group 4: Parallel-Jaw Gripper Assembly
-            double eeX = (spec?.endEffectorHomePosition != null && spec.endEffectorHomePosition.Length == 3) ? spec.endEffectorHomePosition[0] * 1000.0 : 220.0;
-            double eeZ = (spec?.endEffectorHomePosition != null && spec.endEffectorHomePosition.Length == 3) ? spec.endEffectorHomePosition[1] * 1000.0 : 60.0;
-            double jawSpanMm = System.Math.Max(24.0, System.Math.Min(220.0, spec != null ? spec.targetCaliperWidthMm : 70.0));
-            sb.AppendLine("o Parallel_Gripper_Assembly");
-            AppendObjBox(sb, ref vOffset, eeX, 0.0, eeZ, 10.0, jawSpanMm + 16.0, 8.0);
-            AppendObjBox(sb, ref vOffset, eeX + 14.0, -jawSpanMm * 0.5, eeZ, 28.0, 6.0, 12.0);
-            AppendObjBox(sb, ref vOffset, eeX + 14.0,  jawSpanMm * 0.5, eeZ, 28.0, 6.0, 12.0);
 
             return sb.ToString();
         }
@@ -662,9 +699,13 @@ namespace KineticCore.Export
             double d = System.Math.Max(10.0, dMm);
             double h = System.Math.Max(8.0, hMm);
 
-            if (primitiveShape == 1 || primitiveShape == 4) // Cylinder or Hollow Tube
+            if (primitiveShape == 1 || primitiveShape == 3 || primitiveShape == 4 || primitiveShape == 5) // Cylinder, Cone, Torus, or Hollow Tube
             {
                 AppendObjCylinder(sb, ref vStart, offsetX, offsetY, baseZ + h * 0.5, w, d, h, 16);
+            }
+            else if (primitiveShape == 6) // Hex Prism (6 sides)
+            {
+                AppendObjCylinder(sb, ref vStart, offsetX, offsetY, baseZ + h * 0.5, w, d, h, 6);
             }
             else if (primitiveShape == 2) // Sphere
             {
