@@ -46,15 +46,16 @@ namespace KineticCore.Runtime
         private GameObject[] _leftPalettePreviewShapes;
         private Renderer[] _leftPalettePreviewRenderers;
 
-        private const int DeskBarCount = 3;
+        private const int DeskBarCount = 4;
 
         private readonly string[] _buttonActions =
         {
-            // Front Desk Essential Toolbar (indices 0..2)
+            // Front Desk Essential Toolbar (indices 0..3)
             "ToggleHandInspectMode",
+            "ClearAddedCadBodies",
             "ExportUrdf",
             "ResetPose",
-            // Left-Hand Spatial Fusion 360 CAD Palette (indices 3..8)
+            // Left-Hand Spatial Fusion 360 CAD Palette (indices 4..9)
             "CycleCadPrimitiveShape",
             "StampNewCadBodyToAssembly",
             "CycleCadBooleanMode",
@@ -64,11 +65,12 @@ namespace KineticCore.Runtime
         };
         private readonly string[] _buttonLabels =
         {
-            // Front Desk Essential Toolbar (indices 0..2)
+            // Front Desk Essential Toolbar (indices 0..3)
             "HOLD 1:1 MODEL\n(On Right Hand)",
+            "RESET BODIES\n(Clear Added)",
             "EXPORT .STL / .OBJ\n(Save & Preview)",
             "CENTER DESK\n(Reset View)",
-            // Left-Hand Spatial Fusion 360 CAD Palette (indices 3..8)
+            // Left-Hand Spatial Fusion 360 CAD Palette (indices 4..9)
             "CREATE: SHAPE\n(12 CAD Shapes)",
             "+ADD / CUT BODY\n(Place on Model)",
             "COMBINE MODE\n(Join / Cut Hole)",
@@ -155,11 +157,12 @@ namespace KineticCore.Runtime
             _buttonRestLocalScales = new Vector3[count];
             _buttonBaseColors = new Color[]
             {
-                // Front Desk Essential Toolbar (indices 0..2)
+                // Front Desk Essential Toolbar (indices 0..3)
                 new Color(0.10f, 0.85f, 0.72f), // Hold 1:1 Model on Right Hand (Teal)
+                new Color(0.95f, 0.52f, 0.15f), // Reset Bodies / Clear Added (Amber-Orange)
                 new Color(0.15f, 0.85f, 0.35f), // Export STL + OBJ + Preview (Emerald Green)
                 new Color(0.85f, 0.25f, 0.25f), // Center Desk (Red)
-                // Left-Hand Spatial Fusion 360 CAD Palette (indices 3..8)
+                // Left-Hand Spatial Fusion 360 CAD Palette (indices 4..9)
                 new Color(0.05f, 0.82f, 1.00f), // Create Shape: 12 CAD Shapes (Sky Cyan)
                 new Color(0.12f, 0.90f, 0.55f), // +Add / Cut Body (Emerald)
                 new Color(0.95f, 0.22f, 0.52f), // Combine Mode Join/Cut Hole/Intersect (Crimson-Rose)
@@ -168,7 +171,7 @@ namespace KineticCore.Runtime
                 new Color(0.62f, 0.72f, 0.84f)  // Material PLA+/CF/Al/Ti (Titanium Silver)
             };
 
-            // 1. Front Desk Poke-Button Bar (indices 0..2)
+            // 1. Front Desk Poke-Button Bar (indices 0..3)
             GameObject barRoot = new GameObject("VR_Desk_PokeButtonBar");
             barRoot.transform.SetParent(DeskWorkspaceOrigin, false);
             barRoot.transform.localPosition = new Vector3(0.08f, 0.014f, -0.22f);
@@ -1004,24 +1007,24 @@ namespace KineticCore.Runtime
                     switch (mg)
                     {
                         case OVRHand.MicrogestureType.SwipeLeft:
-                            if (isLeft) { PulseButtonVisual(3); MechanismController.CycleCadPrimitiveShape(); }
-                            else        { PulseButtonVisual(3); MechanismController.ScrubDimensionMm(-5.0); }
+                            if (isLeft) { PulseButtonVisual(4); MechanismController.CycleCadPrimitiveShape(); }
+                            else        { PulseButtonVisual(4); MechanismController.ScrubDimensionMm(-5.0); }
                             break;
                         case OVRHand.MicrogestureType.SwipeRight:
-                            if (isLeft) { PulseButtonVisual(3); MechanismController.CycleCadPrimitiveShape(); }
-                            else        { PulseButtonVisual(3); MechanismController.ScrubDimensionMm(+5.0); }
+                            if (isLeft) { PulseButtonVisual(4); MechanismController.CycleCadPrimitiveShape(); }
+                            else        { PulseButtonVisual(4); MechanismController.ScrubDimensionMm(+5.0); }
                             break;
                         case OVRHand.MicrogestureType.SwipeForward:
-                            if (isLeft) { PulseButtonVisual(4); MechanismController.StampNewCadBodyToAssembly(); }
-                            else        { PulseButtonVisual(4); MechanismController.StampNewCadBodyToAssembly(); }
+                            if (isLeft) { PulseButtonVisual(5); MechanismController.StampNewCadBodyToAssembly(); }
+                            else        { PulseButtonVisual(5); MechanismController.StampNewCadBodyToAssembly(); }
                             break;
                         case OVRHand.MicrogestureType.SwipeBackward:
-                            if (isLeft) { PulseButtonVisual(7); MechanismController.CycleCadPatternArray(); }
-                            else        { PulseButtonVisual(6); MechanismController.CycleCadFeatureOp(); }
+                            if (isLeft) { PulseButtonVisual(8); MechanismController.CycleCadPatternArray(); }
+                            else        { PulseButtonVisual(7); MechanismController.CycleCadFeatureOp(); }
                             break;
                         case OVRHand.MicrogestureType.ThumbTap:
-                            if (isLeft) { PulseButtonVisual(5); MechanismController.CycleCadBooleanMode(); }
-                            else        { PulseButtonVisual(1); MechanismController.ExportUrdf(); }
+                            if (isLeft) { PulseButtonVisual(6); MechanismController.CycleCadBooleanMode(); }
+                            else        { PulseButtonVisual(2); MechanismController.ExportUrdf(); }
                             break;
                     }
                 }
@@ -1054,6 +1057,7 @@ namespace KineticCore.Runtime
                 case "SnapAddModularJointAndLink": MechanismController.SnapAddModularJointAndLink(); return;
                 case "CycleCadPrimitiveShape":     MechanismController.CycleCadPrimitiveShape();     return;
                 case "StampNewCadBodyToAssembly":  MechanismController.StampNewCadBodyToAssembly();  return;
+                case "ClearAddedCadBodies":        MechanismController.ClearAddedCadBodies();        return;
                 case "CycleCadBooleanMode":        MechanismController.CycleCadBooleanMode();        return;
                 case "CycleCadPatternArray":       MechanismController.CycleCadPatternArray();       return;
                 case "CycleModelTiltAngles":       MechanismController.CycleModelTiltAngles();       return;

@@ -944,6 +944,21 @@ namespace KineticCore.Runtime
         }
 
         [Preserve]
+        public void ClearAddedCadBodies()
+        {
+            _stampedCadBodies.Clear();
+            _hasAimedBooleanCursor = false;
+            CadPatternModeIndex = 0;
+            ModelTiltDeg = Vector3.zero;
+            ModelTranslationMm = Vector3.zero;
+            if (_liveBooleanCursorObj != null) _liveBooleanCursorObj.SetActive(false);
+            SpatialTactileAudio.Instance?.PlayCaliperTick();
+            UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+            StatusMessage = "RESET BODIES -> Removed all added bodies (Reset to 1 Base Shape)";
+            WriteDiagnosticState("ClearAddedCadBodies");
+        }
+
+        [Preserve]
         public void CycleCadBooleanMode()
         {
             CadBooleanModeIndex = (CadBooleanModeIndex + 1) % CadBooleanModeNames.Length;
@@ -3307,6 +3322,7 @@ namespace KineticCore.Runtime
             if (KInput.GetKeyDown(KeyCode.LeftBracket)) ScrubDimensionMm(-10.0);
             if (KInput.GetKeyDown(KeyCode.RightBracket)) ScrubDimensionMm(+10.0);
             if (KInput.GetKeyDown(KeyCode.U)) ExportUrdf();
+            if (KInput.GetKeyDown(KeyCode.Backspace) || KInput.GetKeyDown(KeyCode.Delete)) ClearAddedCadBodies();
             if (KInput.GetKeyDown(KeyCode.P)) TogglePuppet();
             if (KInput.GetKeyDown(KeyCode.O)) ToggleAutoOrbit();
             if (KInput.GetKeyDown(KeyCode.Space) || KInput.GetKeyDown(KeyCode.R)) ResetPose();
@@ -3386,6 +3402,7 @@ namespace KineticCore.Runtime
             GUILayout.BeginHorizontal();
             if (GUILayout.Button($"Material: {CadMaterialNames[CadMaterialIndex].Split(' ')[0]} [M]")) CycleCadMaterial();
             if (GUILayout.Button(HandInspectActive ? "Right Hand 1:1: ON [I]" : "Hold 1:1 (Right Hand) [I]")) ToggleHandInspectMode();
+            if (GUILayout.Button("Reset Bodies [Backspace]")) ClearAddedCadBodies();
             if (GUILayout.Button("Export .STL / .OBJ [U]")) ExportUrdf();
             if (GUILayout.Button("Center Desk [R]")) ResetPose();
             GUILayout.EndHorizontal();
