@@ -93,6 +93,7 @@ namespace KineticCore.Runtime
         private bool _draggingTargetWithMouse = false;
         private int _draggedFacePullAxis = -1;
         private int _draggedTiltAxis = -1;
+        private bool _draggedMoveHandle = false;
         private GameObject _fingertipReticle;
         private Renderer _reticleRenderer;
         private Transform _cachedRigOrigin;
@@ -510,11 +511,23 @@ namespace KineticCore.Runtime
                             {
                                 _draggedTiltAxis = t;
                                 _draggedFacePullAxis = -1;
+                                _draggedMoveHandle = false;
                                 _draggingTargetWithMouse = false;
                                 SpatialTactileAudio.Instance?.PlayPokeClick(hit.point);
                                 return;
                             }
                         }
+                    }
+
+                    // Check if user clicked the Direct 3D Translation Move Handle (MOVE 3D X/Y/Z)
+                    if (MechanismController != null && MechanismController.MoveHandle != null && hit.transform == MechanismController.MoveHandle)
+                    {
+                        _draggedMoveHandle = true;
+                        _draggedFacePullAxis = -1;
+                        _draggedTiltAxis = -1;
+                        _draggingTargetWithMouse = false;
+                        SpatialTactileAudio.Instance?.PlayPokeClick(hit.point);
+                        return;
                     }
 
                     // Check if user clicked any joint's Screw-Axis Pin S_i on the robot arm
@@ -527,6 +540,7 @@ namespace KineticCore.Runtime
                                 _draggingTargetWithMouse = false;
                                 _draggedFacePullAxis = -1;
                                 _draggedTiltAxis = -1;
+                                _draggedMoveHandle = false;
                                 MechanismController.CycleJointScrewAxis(p);
                                 return;
                             }
@@ -539,12 +553,28 @@ namespace KineticCore.Runtime
             if (!KInput.GetMouseButton(0))
             {
                 _draggingTargetWithMouse = false;
-                if (_draggedFacePullAxis >= 0 || _draggedTiltAxis >= 0)
+                if (_draggedFacePullAxis >= 0 || _draggedTiltAxis >= 0 || _draggedMoveHandle)
                 {
                     _draggedFacePullAxis = -1;
                     _draggedTiltAxis = -1;
+                    _draggedMoveHandle = false;
                     MechanismController?.TryHandleDirectSpatialCadManipulation(Vector3.zero, false);
                 }
+            }
+
+            if (_draggedMoveHandle && !insideGuiBox && MechanismController != null && DeskWorkspaceOrigin != null)
+            {
+                Ray ray = cam.ScreenPointToRay(mousePos);
+                Vector3 handleWorld = (MechanismController.MoveHandle != null)
+                    ? MechanismController.MoveHandle.position
+                    : DeskWorkspaceOrigin.TransformPoint(new Vector3(0.05f, 0.015f, -0.02f));
+                Plane movePlane = new Plane(DeskWorkspaceOrigin.up, handleWorld);
+                if (movePlane.Raycast(ray, out float enterM) && enterM > 0f && enterM < 5f)
+                {
+                    Vector3 worldHit = ray.GetPoint(enterM);
+                    MechanismController.TryHandleDirectSpatialCadManipulation(worldHit, true, -1, null, false, -1, true);
+                }
+                return;
             }
 
             if (_draggedTiltAxis >= 0 && !insideGuiBox && MechanismController != null && DeskWorkspaceOrigin != null)

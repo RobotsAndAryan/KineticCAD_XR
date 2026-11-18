@@ -211,7 +211,7 @@ namespace KineticCore.Runtime
         private int _activeFacePullAxis = -1;
         private int _lastFacePullTickBucket = -1;
 
-        // 3D Angular Rotation / Tilt Handles (Pitch X°, Yaw Y°, Roll Z°)
+        // 3D Angular Rotation / Tilt Handles (Pitch X°, Yaw Y°, Roll Z°) & Direct 3D Translation Move Handle (MOVE X/Y/Z)
         private readonly Transform[] _tiltHandles = new Transform[3];
         private readonly Renderer[] _tiltHandleRenderers = new Renderer[3];
         private readonly Color[] _tiltHandleBaseColors =
@@ -223,6 +223,11 @@ namespace KineticCore.Runtime
         public Transform[] TiltHandles => _tiltHandles;
         private int _activeTiltAxis = -1;
         private int _lastTiltTickBucket = -999;
+        private Transform _moveHandle;
+        private Renderer _moveHandleRenderer;
+        public Transform MoveHandle => _moveHandle;
+        private bool _activeMoveHandleDrag = false;
+        private int _lastMoveTickBucket = -999;
 
         // Upgrade 2: Interactive 3D Boolean CSG Positioning Cursor (2mm CAD grid snapping before stamping)
         private GameObject _liveBooleanCursorObj;
@@ -1964,6 +1969,20 @@ namespace KineticCore.Runtime
                     0.068f, 26, _tiltHandleBaseColors[t], tiltTags[t]);
             }
 
+            // 2C. Direct 3D Translation / Move Handle (MOVE X/Y/Z) at the front-base of the 3D CAD Model
+            GameObject moveGo = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            moveGo.name = "MoveHandle_3D_Translation_XYZ";
+            moveGo.transform.SetParent(DeskWorkspaceOrigin, false);
+            moveGo.transform.localScale = new Vector3(0.022f, 0.012f, 0.022f);
+            _moveHandleRenderer = moveGo.GetComponent<Renderer>();
+            SetColorSafe(_moveHandleRenderer, new Color(0.25f, 1.0f, 0.85f));
+            _moveHandle = moveGo.transform;
+
+            WorldTextFactory.Create(
+                "MoveHandleLabel_XYZ", _moveHandle,
+                new Vector3(0f, 1.25f, 0f), Quaternion.Euler(25f, 0f, 0f),
+                0.062f, 26, new Color(0.25f, 1.0f, 0.85f), "MOVE 3D (X/Y/Z)");
+
             // 3. Interactive 3D Combine Positioning Cursor (snaps to 2mm CAD grid inside model before adding/cutting)
             _liveBooleanCursorObj = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             _liveBooleanCursorObj.name = "LiveBoolean_3D_Cursor";
@@ -2040,6 +2059,16 @@ namespace KineticCore.Runtime
                         : new Vector3(0.018f, 0.005f, 0.018f);
                     SetColorSafe(_tiltHandleRenderers[t], isTilted ? Color.white : _tiltHandleBaseColors[t]);
                 }
+
+                if (_moveHandle != null)
+                {
+                    _moveHandle.gameObject.SetActive(showHandles);
+                    _moveHandle.localPosition = wpCenter + new Vector3(0f, -hMeters * 0.35f, -dMeters * 0.5f - 0.020f);
+                    _moveHandle.localScale = _activeMoveHandleDrag
+                        ? new Vector3(0.028f, 0.015f, 0.028f)
+                        : new Vector3(0.022f, 0.012f, 0.022f);
+                    SetColorSafe(_moveHandleRenderer, _activeMoveHandleDrag ? Color.white : new Color(0.25f, 1.0f, 0.85f));
+                }
             }
 
             // Update the 12 wireframe edge rails of the In-Place Passthrough Bounding Twin
@@ -2087,19 +2116,21 @@ namespace KineticCore.Runtime
             int forcedFaceAxis = -1,
             Vector3? leftPalettePreviewPos = null,
             bool aimBooleanRequested = false,
-            int forcedTiltAxis = -1)
+            int forcedTiltAxis = -1,
+            bool forcedMoveHandle = false)
         {
             if (DeskWorkspaceOrigin == null || _sampleWorkpiece == null) return false;
 
             if (_carrySnapCooldown > 0f)
                 _carrySnapCooldown = Mathf.Max(0f, _carrySnapCooldown - Time.deltaTime);
 
-            if (!isActivePointOrDrag && forcedFaceAxis < 0 && forcedTiltAxis < 0)
+            if (!isActivePointOrDrag && forcedFaceAxis < 0 && forcedTiltAxis < 0 && !forcedMoveHandle)
             {
-                if (_activeFacePullAxis >= 0 || _activeTiltAxis >= 0)
+                if (_activeFacePullAxis >= 0 || _activeTiltAxis >= 0 || _activeMoveHandleDrag)
                 {
                     _activeFacePullAxis = -1;
                     _activeTiltAxis = -1;
+                    _activeMoveHandleDrag = false;
                     UpdateSampleWorkpieceVisual(ManualTestWidthMm);
                 }
                 if (_isCarryingSnapModule)
@@ -2114,6 +2145,51 @@ namespace KineticCore.Runtime
 
             Vector3 localPtr = DeskWorkspaceOrigin.InverseTransformPoint(pointerWorldPos);
             Vector3 wpCenter = _sampleWorkpiece.localPosition;
+
+            // 1. Direct 3D Translation / Move Handle (MOVE 3D X/Y/Z)
+            if (!_isHoldingWorkpiece && forcedFaceAxis < 0 && forcedTiltAxis < 0)
+            {
+                if (forcedMoveHandle)
+                {
+                    _activeMoveHandleDrag = true;
+                }
+                else if (!_activeMoveHandleDrag && _activeFacePullAxis < 0 && _activeTiltAxis < 0 &&
+                         _moveHandle != null && Vector3.Distance(pointerWorldPos, _moveHandle.position) < 0.036f)
+                {
+                    _activeMoveHandleDrag = true;
+                    SpatialTactileAudio.Instance?.PlayPokeClick(_moveHandle.position);
+                }
+                else if (_activeMoveHandleDrag && _moveHandle != null &&
+                         Vector3.Distance(pointerWorldPos, _moveHandle.position) > 0.24f)
+                {
+                    _activeMoveHandleDrag = false;
+                }
+
+                if (_activeMoveHandleDrag)
+                {
+                    float hMeters = Mathf.Clamp((float)(CapturedHeightMm * 0.001), 0.010f, 0.600f);
+                    float dMeters = Mathf.Clamp((float)(CapturedDepthMm * 0.001), 0.010f, 0.600f);
+                    float rawXMm = (localPtr.x - _workpieceHomeLocalPos.x) * 1000f;
+                    float rawYMm = (localPtr.y - hMeters * 0.15f) * 1000f;
+                    float rawZMm = (localPtr.z + dMeters * 0.5f + 0.020f - _workpieceHomeLocalPos.z) * 1000f;
+
+                    ModelTranslationMm = new Vector3(
+                        Mathf.Clamp(Mathf.Round(rawXMm / 2f) * 2f, -200f, 200f),
+                        Mathf.Clamp(Mathf.Round(rawYMm / 2f) * 2f, -50f, 220f),
+                        Mathf.Clamp(Mathf.Round(rawZMm / 2f) * 2f, -180f, 180f));
+
+                    int moveBucket = Mathf.RoundToInt((ModelTranslationMm.x + ModelTranslationMm.y + ModelTranslationMm.z) / 4f);
+                    if (moveBucket != _lastMoveTickBucket)
+                    {
+                        _lastMoveTickBucket = moveBucket;
+                        SpatialTactileAudio.Instance?.PlayCaliperTick(pointerWorldPos);
+                    }
+
+                    UpdateSampleWorkpieceVisual(ManualTestWidthMm);
+                    StatusMessage = $"3D MOVE HANDLE DRAG -> Position Offset: X={ModelTranslationMm.x:F0}mm, Y={ModelTranslationMm.y:F0}mm, Z={ModelTranslationMm.z:F0}mm";
+                    return true;
+                }
+            }
 
             // 1A. Direct 3D Angular Rotation / Tilt Handles (TILT X° Pitch, TILT Y° Yaw, TILT Z° Roll)
             if (!_isHoldingWorkpiece && forcedFaceAxis < 0)
@@ -3095,12 +3171,20 @@ namespace KineticCore.Runtime
                         _specSheetTransform.rotation = Quaternion.LookRotation(toSpec.normalized, Vector3.up);
                 }
 
+                float maxOverhang = Mathf.Max(Mathf.Abs(ModelTiltDeg.x), Mathf.Abs(ModelTiltDeg.z));
+                string aiPrintAdvice = (maxOverhang > 45f && maxOverhang < 135f)
+                    ? $"⚠ Overhang {maxOverhang:F0}° > 45°: Enable Tree Supports in Slicer or tilt <=45°"
+                    : ((CadPartMassGrams > 140.0 && CadFeatureOpIndex != 1)
+                        ? $"💡 Heavy solid ({CadPartMassGrams:F0}g): Poke [MODIFY: SHELL] for 2.5mm hollow (-42% filament)"
+                        : $"✓ Print-Ready ({maxOverhang:F0}° overhang <= 45° support-free | {totalBodies} Bod{(totalBodies == 1 ? "y" : "ies")})");
+                AgentRecommendation = $"AGENTIC CAD CO-PILOT: {aiPrintAdvice}";
+
                 _specSheetText.text =
-                    $"=== FUSION 360 6-DoF CAD CONTROLS (12 SHAPES, UP TO 600MM) ===\n" +
-                    $"1. CREATE (12 SHAPES): Box, Cylinder, Sphere, Cone, Torus, Tube, Hex Nut, Wedge, L-Bracket, U-Channel, T-Beam, Bearing\n" +
-                    $"2. EXTRUDE (UP TO 600MM): Drag +X (Red), +Y (Green), +Z (Blue) handles on 3D Model\n" +
-                    $"3. 3D TILT / ROTATE: Drag TILT X° (Pitch), TILT Y° (Yaw), TILT Z° (Roll) handles or poke [ROTATE / TILT]\n" +
-                    $"4. COMBINE & EXPORT: Touch model + poke [+ADD / CUT BODY] -> Poke [EXPORT .STL / .OBJ] to view on Desk Gallery!";
+                    $"=== FUSION 360 6-DoF CAD CONTROLS & AI SLICER CO-PILOT ===\n" +
+                    $"1. CREATE (12 SHAPES, 10-600MM): Drag +X (Red), +Y (Green), +Z (Blue) handles to Extrude\n" +
+                    $"2. 6-DoF POSE: Drag [MOVE 3D (X/Y/Z)] to Translate | Drag [TILT X°/Y°/Z°] to Rotate (-180°..+180°)\n" +
+                    $"3. COMBINE & EXPORT: Touch model + poke [+ADD / CUT BODY] -> Poke [EXPORT .STL / .OBJ]\n" +
+                    $"4. {AgentRecommendation}";
             }
         }
 

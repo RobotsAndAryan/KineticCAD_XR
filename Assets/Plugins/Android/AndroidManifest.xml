@@ -14,10 +14,12 @@
     <meta-data android:name="com.oculus.telemetry.project_guid" android:value="bfaa97f7-fbfc-4f68-8a9d-c88bdf3da9fd" />
     <meta-data android:name="com.oculus.supportedDevices" android:value="quest2|questpro|quest3|quest3s|stanley" tools:replace="android:value" />
     <meta-data android:name="com.oculus.handtracking.frequency" android:value="MAX" />
+    <meta-data android:name="com.oculus.handtracking.version" android:value="V2.0" />
   </application>
   <uses-feature android:name="android.hardware.vr.headtracking" android:version="1" android:required="true" />
   <horizonos:uses-horizonos-sdk horizonos:minSdkVersion="60" horizonos:targetSdkVersion="207" />
   <uses-feature android:name="oculus.software.handtracking" android:required="false" />
+  <uses-feature android:name="com.oculus.feature.MICROGESTURES" android:required="false" />
   <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
   <uses-permission android:name="com.oculus.permission.USE_ANCHOR_API" />
   <uses-feature android:name="com.oculus.feature.PASSTHROUGH" android:required="true" />
