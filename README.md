@@ -1,141 +1,120 @@
-# KineticCAD XR
+# KineticCAD XR — Interactive 3D Spatial CAD & 3D-Printing Studio (Fusion 360 for Meta Quest 3)
 
-> **Neuro-Symbolic Spatial Mechanism & Physical AI Synthesizer on Meta Quest 3**  
-> *Built for the Nebius × NVIDIA Global AI Hackathon (Physical AI Track) & Meta Quest Spatial Computing*
+> **Hands-First Spatial CAD, Bimanual Passthrough Calipers & Physical AI Studio for Meta Quest 3**  
+> *Official Submission for the **Meta VR Start Developer Competition 2026** (Productivity Track + Special Awards)*
 
+[![Competition](https://img.shields.io/badge/Meta%20VR%20Start%202026-Productivity%20Track-0081FB.svg)](https://www.meta.com/)
 [![Platform](https://img.shields.io/badge/Platform-Meta%20Quest%203%20%7C%20Unity%206%20(6000.6.6f1)-blue.svg)](https://unity.com/)
-[![NVIDIA](https://img.shields.io/badge/NVIDIA-Nemotron--3%20(120B%20%2F%20550B)-76B900.svg)](https://build.nvidia.com/)
-[![Nebius](https://img.shields.io/badge/Nebius-Token%20Factory%20API-6C5CE7.svg)](https://tokenfactory.nebius.com/)
-[![Kinematics](https://img.shields.io/badge/Kinematics-PoE%20Screw%20Theory%20%2B%20DLS%20IK-00CEC9.svg)]()
-[![Hardware Bridge](https://img.shields.io/badge/Hardware%20Bridge-60Hz%20UDP%20%7C%20URDF%20%7C%20ROS%20%7C%20Isaac%20Sim-E17055.svg)]()
+[![Input](https://img.shields.io/badge/Interaction-Controller--Free%20Hand%20Tracking%20%2B%20Microgestures-00CEC9.svg)]()
+[![CAD](https://img.shields.io/badge/CAD%20Engine-12%20Procedural%20Solids%20%7C%20900mm%20Buildspace-FF7675.svg)]()
+[![Export](https://img.shields.io/badge/Export-.STL%20%7C%20.OBJ%20%7C%20.URDF%20%7C%2060Hz%20UDP-2ECC71.svg)]()
 
 ---
 
 ## 🌟 Overview
 
-**KineticCAD XR** bridges the gap between human spatial intuition, foundation models, and deterministic robotics. Instead of manually typing mechanical parameters into static CAD software, engineers use **Meta Quest 3 Color Passthrough** to inspect physical objects in their workspace, measure target tolerances with a **bimanual index caliper**, and synthesize spatial robotic mechanisms via **NVIDIA Nemotron foundation models** served through the **Nebius Token Factory API**.
+**KineticCAD XR** transforms your physical desk in **Meta Quest 3 Color Passthrough** into a hands-first **Spatial Fusion 360 CAD & 3D-Printing Studio**. Instead of battling 2D mouse orbits or menu-heavy desktop software, makers and mechanical engineers sculpt up to **900 mm** multi-body CAD parts directly with bare hands, measure real objects on their desk with **bimanual Passthrough calipers**, hold **1:1 physical print previews** on their right hand, and export slicer-ready **`.stl`**, **`.obj`**, and robotics **`.urdf`** files in one poke.
 
-The resulting mechanism mounts directly onto the physical desk, can be **puppeted in real time at 60–90 Hz via Damped Least-Squares (DLS) Inverse Kinematics**, exports production-grade analytical `.urdf` files, and broadcasts live joint state telemetry over UDP to ROS and NVIDIA Isaac Sim.
-
----
-
-## 🏗️ System Architecture
-
-```
-+---------------------------------------------------------------------------------------------------+
-|                                        KINETICCAD XR ARCHITECTURE                                 |
-+---------------------------------------------------------------------------------------------------+
-|  [ Quest 3 Color Passthrough ]                                                                    |
-|         │                                                                                         |
-|         ▼                                                                                         |
-|  [ Tabletop Spatial Anchor ]  ──> Places DeskWorkspaceOrigin directly onto the physical desk      |
-|         │                                                                                         |
-|         ▼                                                                                         |
-|  [ Bimanual Index Caliper ]   ──> One-Euro Filtered (fc_min=1.0Hz, beta=0.003)                   |
-|         │                         Strict Index-pointing pose check (middle/ring/pinky curled)     |
-|         │                         Outputs precise physical target mm (15 mm - 320 mm)             |
-|         │                                                                                         |
-|         ▼                                                                                         |
-|  [ 3D Desk Poke Bar / Touch ] ──> 5 Desk Buttons (5.2 cm touch radius, white pop feedback)        |
-|         │                                                                                         |
-|         ▼                                                                                         |
-|  [ Nebius AI Synthesis ]      ──> Token Factory API (nvidia/nemotron-3-super-120b-a12b / 550b)    |
-|         │                         < 1 ms deterministic analytical fallback if offline             |
-|         │                                                                                         |
-|         ▼                                                                                         |
-|  [ Symbolic Kinematics Core ] ──> Analytical Screw Axis + Product of Exponentials (PoE) FK        |
-|         │                         Yoshikawa Manipulability Analysis: mu(theta) = sqrt(det(J*J^T)) |
-|         │                         Damped Least-Squares (DLS) IK at 60-90 Hz (lambda = 0.06)        |
-|         │                         Real-time Right Index Fingertip Tracking & Puppeting            |
-|         │                                                                                         |
-|         ▼                                                                                         |
-|  [ Physical AI Pipeline Out ] ──> Analytical .URDF Generation & Local Storage                     |
-|                               ──> 60 Hz UDP Joint State Telemetry (Port 9870)                     |
-|                               ──> Tools/udp_to_joint_states.py (ROS / Isaac Sim bridge)           |
-+---------------------------------------------------------------------------------------------------+
-```
+Built on a shared mathematical kinematics & robotics kernel (**Product of Exponentials**, **Damped Least-Squares IK**, **1€ Precision Filtering**, **Swept-Volume Control Barrier Functions**, and **60 Hz UDP ROS 2 / Isaac Sim telemetry**), KineticCAD XR bridges spatial product design directly to 3D printing and physical AI.
 
 ---
 
-## 🔬 Core Capabilities
+## ✨ Key Capabilities
 
-### 1. Spatial Measurement (Bimanual Caliper)
-- **One-Euro Filtered Planar Projection:** Measures Euclidean distance between left and right index fingertips, projecting onto the tabletop plane ($XZ$) to eliminate hand-tilt hypotenuse distortion.
-- **Strict Pointing Pose Detection:** Activates only when the user extends the index finger straight while curling the middle, ring, and pinky fingers.
-- **Visual Stability Locking:** Real-time 3D caliper bar with floating millimeter label that turns green (`LOCKED: xx.x mm`) after holding steady for $0.70\text{ s}$.
+### 1. Expanded 3D Spatial CAD Workbench (`720 mm × 540 mm` Desk, up to `900 mm` Extrusions)
+- **3 Direct Extrude / Pull Handles (`10 mm – 900 mm`):** Coral Red (**`+X WIDTH`**), Emerald Green (**`+Y HEIGHT`**), and Sky Blue (**`+Z DEPTH`**) handles resize your solid continuously with acoustic millimeter ticks.
+- **3 Angular Tilt / Rotation Handles (`-180°` to `+180°` in `5°` steps):** Amber Orange (**`TILT X°`** Pitch), Neon Violet (**`TILT Y°`** Yaw), and Electric Gold (**`TILT Z°`** Roll).
+- **Direct 3D Translation Handle (`MOVE 3D (X/Y/Z)`):** Omnidirectional teal handle lets you position shapes anywhere across the expanded build volume (**`X: [-300, +300] mm`**, **`Y: [-75, +330] mm`**, **`Z: [-270, +270] mm`**) before joining or cutting.
 
-### 2. Neuro-Symbolic Generative AI
-- **Dual-Tier NVIDIA Nemotron via Nebius Token Factory:**
-  - `nvidia/nemotron-3-super-120b-a12b`: Responsive topology and link length exploration.
-  - `nvidia/nemotron-3-ultra-550b-a55b`: Deep mechanical verification, singularity avoidance, and payload feasibility audit.
-- **Transparent Source Tracking:** HUD explicitly reports whether the active mechanism was produced by the language model (`[AI Spec ✓]`) or the deterministic parametric fallback (`[Parametric]`), ensuring complete engineering transparency.
-- **Deterministic Offline Fallback:** Parametric fallback mechanism synthesis ensuring zero disruption if Wi-Fi or API tokens drop.
-- **3D HUD Diagnostics:** Live display of active model, spec origin, API latency ($ms$), and manipulability.
+### 2. 12 Watertight Procedural Engineering & Fusion 360 Shapes
+Cycle all **12 parametric CAD solids** rendered with crisp normals and true coaxial through-holes (`BuildFrustumConeMesh`, `BuildTorusMesh`, `BuildHollowPrismTubeMesh`, `BuildWedgeRampMesh`):
+1. `Box / Cube`
+2. `Cylinder`
+3. `Sphere`
+4. `Cone / Frustum`
+5. `Torus Ring`
+6. `Hollow Tube` *(true coaxial inner bore)*
+7. `Hex Prism (M-Nut)` *(true 6-sided nut with center bore)*
+8. `Wedge / 45° Ramp`
+9. `L-Bracket` *(with dual chamfered gusset ribs)*
+10. `U-Channel` *(3-walled C/U structural rail)*
+11. `T-Beam Extrusion`
+12. `Flanged Bearing` *(mounting flange + boss hub + through-bore)*
 
-### 3. Real-Time Robotics & Kinematic Puppeting
-- **Product of Exponentials (PoE) Formulation:** Exact screw-theory forward kinematics in $se(3)$ using matrix exponentials.
-- **Damped Least-Squares (DLS) IK:** Real-time Jacobian inverse solving $\Delta \boldsymbol{\theta} = J^T (J J^T + \lambda^2 I)^{-1} \Delta \mathbf{x}$ ($\lambda = 0.06, \lambda^2 = 0.0036$), eliminating singularity instabilities.
-- **Yoshikawa Manipulability Ellipsoid Analysis:** Live computation of $\mu(\boldsymbol{\theta}) = \sqrt{\det(J J^T)}$, dynamically shifting arm link colors from Cyan (optimal manipulability) to Orange/Red (near kinematic singularity).
-- **Sub-Centimeter 1:1 Hand Puppeting:** Solved the double-translation root pose offset in Quest 3 bone hierarchies so the red/orange end-effector target sphere tracks directly on your physical right index fingertip.
+### 3. Palm-Locked Left-Hand Fusion 360 Palette & Right-Hand 1:1 Print Preview
+Computed via 3D cross-product palm normals (`HandFingertipReader.TryGetOvrPalmFacingCamera` / `TryGetOpenXrPalmFacingCamera`):
+- **Palm Facing Headset Camera (`dot > 0.35`):** Your **Left-Hand Fusion 360 Tool Palette** (or **Right-Hand 1:1 Model Preview**) smoothly tracks your hand.
+- **Palm Turned Away or Lowered:** The panel or 1:1 model **freezes rock-solid in 3D space**, eliminating mid-air wobble so you can poke buttons comfortably or inspect a model from every angle without arm fatigue.
+- **Essential 10-Button Layout (Debounced `2.4 cm` poke radius + pull-back release latch + `-5.5 mm` spring press + 35 ms mechanical click):**
+  - **6 Left-Hand Palette Buttons:** `CREATE: SHAPE (12 CAD Shapes)`, `+ADD / CUT BODY (Place on Model)`, `COMBINE MODE (Join / Cut Hole)`, `MODIFY: SHELL (Hollow / Chamfer)`, `PATTERN (1x / Linear / Circ)`, `MATERIAL (PLA / CF / Al / Ti)`.
+  - **4 Front Desk Toolbar Buttons:** `HOLD 1:1 MODEL (On Right Hand)`, `RESET BODIES (Clear Added)`, `EXPORT .STL / .OBJ (Save & Preview)`, `CENTER DESK (Reset View)`.
 
-### 4. Physical AI Export & Simulation Bridge
-- **Standardized URDF Export:** Generates clean XML `.urdf` robot descriptions following ROS REP-103 standards with links, visual meshes, revolute joints, box/cylinder inertia matrices, and axis vectors on button press.
-- **60 Hz UDP Joint State Telemetry:** Streams real-time joint states on UDP port `9870`.
-- **Python Bridge (`Tools/udp_to_joint_states.py`):** Converts incoming UDP stream directly into ROS / ROS 2 `sensor_msgs/JointState` or feeds directly into NVIDIA Isaac Sim and Omniverse.
+### 4. Bimanual Passthrough Calipers & Live Agentic CAD / Slicer Co-Pilot
+- **Bimanual Index Caliper (`1€` Filtered):** Point both index fingers (`IsOvrIndexOnlyPointing` / `IsOpenXrIndexOnlyPointing`) around any physical desk object to capture exact `Width × Depth × Height` tolerances (`MinCutoff = 1.0 Hz`, `Beta = 0.003`).
+- **Live Engineering & Printability Telemetry:** Instant mass (`g`) across **PLA+ (`1.24 g/cm³`)**, **PETG-CF (`1.38 g/cm³`)**, **6061-T6 Al (`2.70 g/cm³`)**, and **Ti-6Al-4V (`4.43 g/cm³`)**, estimated 3D print time (`min`), overhang warning (`> 45°` tree support advisory), and **NVIDIA Nemotron** neuro-symbolic synthesis fallback.
+
+### 5. One-Poke `.STL` / `.OBJ` / `.URDF` Export & In-VR 3D Turntable Gallery
+- Poking **`EXPORT .STL / .OBJ`** writes:
+  - Watertight ASCII **`.stl`** (`<robot>_cad.stl`, millimeter units ready for Bambu Studio / PrusaSlicer / Cura),
+  - Multi-group Wavefront **`.obj`** (`<robot>_cad.obj`) preserving `Join` / `Cut` / `Intersect` bodies, tilts, patterns, and 3D offsets,
+  - Analytical **`.urdf`** + **`_cbf_envelope.json`**,
+- Spawns a live rotating preview on the right-side **Exported 3D Model Gallery Turntable (`ExportedModel_3D_GalleryPedestal`)** right inside Mixed Reality, while broadcasting 60 Hz UDP telemetry on port `9870` (`Tools/udp_to_joint_states.py`).
+
+---
+
+## 🏗️ Architecture & Kinematics Foundation
+
+- **MRUK Spatial Anchoring:** Snaps the `720 mm × 540 mm` workbench directly onto your physical desk (`MRUKAnchor.SceneLabels.TABLE`).
+- **One-Euro Precision Filter:** Eliminates high-frequency hand-tracking tremor while keeping rapid extrusions responsive.
+- **Product of Exponentials (PoE) & DLS IK:** Analytical $se(3)$ forward kinematics, Yoshikawa manipulability $\mu(\boldsymbol{\theta}) = \sqrt{\det(J J^T)}$, and singularity-safe Damped Least-Squares IK ($\lambda = 0.06$).
+- **Accessible Input Options:** Full bare-hand direct poking, Meta OpenXR **Microgestures**, seated **Gaze + 260 ms Dwell Pinch**, Meta Touch controllers, and Desktop Unity Editor mouse/keyboard workflows.
 
 ---
 
 ## 🚀 Quickstart Guide
 
-### Running on Meta Quest 3
-1. Connect your Meta Quest 3 via USB-C or Wi-Fi (enable Developer Mode).
-2. Install the pre-built APK via ADB or SideQuest:
+### On Meta Quest 3 (Standalone APK)
+1. Enable Developer Mode on your Quest 3 and connect via USB-C or wireless ADB.
+2. Install the latest competition build APK:
    ```bash
-   adb install -r unity_vr_apps/KineticCAD_antiGrav_final.apk
+   adb install -r unity_vr_apps/KineticCAD_final_v3_meta.apk
    ```
-3. Put on the Quest 3 and launch **KineticCAD XR** from the Unknown Sources menu.
-4. Point both index fingers to measure any object on your desk, or poke the 3D buttons along the front desk edge to synthesize and puppet the robotic mechanism.
+3. Launch **KineticCAD XR** from **Unknown Sources** (or install via your Meta Horizon **`Competition`** release channel Invite URL).
+4. See [`USER_MANUAL.md`](USER_MANUAL.md) for the full gesture, button, and desktop keyboard guide.
 
-### Running the Python ROS 2 / Isaac Sim / Standalone Telemetry Bridge
-In a terminal on your host machine (works out-of-the-box on Windows, macOS, and Linux **with or without** `rclpy` installed):
+### Pulling Exported `.STL` & `.OBJ` Prints from Quest 3
+```powershell
+adb pull /sdcard/Android/data/com.DefaultCompany.KineticCADXR/files/ ./Exports/
+```
+*(In the Unity Editor, exports write directly to `Exports/`.)*
+
+### Optional 60 Hz ROS 2 / Isaac Sim Telemetry Bridge
 ```bash
 python Tools/udp_to_joint_states.py --port 9870
 ```
-- **If ROS 2 (`rclpy`) is installed:** Publishes live `/joint_states` (`sensor_msgs/msg/JointState`) at 60 Hz.
-- **If running on Windows / standalone Python:** Automatically launches a live 60 Hz terminal telemetry dashboard displaying real-time joint angles (`J1`, `J2`, `J3` in degrees), Yoshikawa manipulability $\mu(\boldsymbol{\theta})$, and singularity health.
-- **Pre-exported Reference URDFs:** Ready-to-inspect `.urdf` files with analytical inertia tensors ($I_{xx}, I_{yy}, I_{zz}$) are included in [`Exports/`](Exports/) (`kinetic_claw_70mm.urdf`, `kinetic_claw_145mm.urdf`), and pressing **EXPORT URDF** in the Editor also writes directly to `Exports/`.
-- **Hackathon Pitch & Devpost Guide:** See [`HACKATHON_SUBMISSION.md`](HACKATHON_SUBMISSION.md) for full submission copy and the 2-minute demo script.
 
 ---
 
-## 📦 Project Structure
+## 📦 Repository Structure
 
 ```
 KineticCAD_XR/
 ├── Assets/
 │   ├── KineticCore/
-│   │   ├── AI/                 # NebiusKinematicSynthesizer (Token Factory API)
-│   │   ├── CaliperController.cs# Bimanual index measurement & One-Euro filter
-│   │   ├── Editor/             # Build validation & pre-build shader cleaner
-│   │   ├── Export/             # UdpJointStateBroadcaster & UrdfSerializer
-│   │   ├── Input/              # HandFingertipReader & strict pointing pose logic
-│   │   ├── Kinematics/         # PoE Forward Kinematics, ScrewAxis, DLS IK
+│   │   ├── AI/                 # NebiusKinematicSynthesizer (Nemotron + deterministic fallback)
+│   │   ├── CaliperController.cs# Bimanual index caliper & 1€ noise filter
+│   │   ├── Editor/             # Build validation & scene tools
+│   │   ├── Export/             # UrdfSerializer (.stl/.obj/.urdf/_cbf_envelope.json) & UDP broadcaster
+│   │   ├── Input/              # HandFingertipReader (palm-normal camera lock, OpenXR/OVR/mouse shims)
+│   │   ├── Kinematics/         # PoE Forward Kinematics, ScrewAxis, DLS IK, OneEuroFilter
 │   │   ├── Runtime/            # KineticMechanismController & QuestHandAndCommandBridge
-│   │   └── Schema/             # MechanismGraph JSON schema
-│   ├── Resources/
-│   │   ├── KineticSolidLit.shader  # Mobile single-pass stereo URP lit shader
-│   │   └── KineticWorldText.shader # Mobile stereo 3D world-space text shader
+│   │   └── Schema/             # MechanismGraph & StampedCadBodySpec JSON schemas
 │   └── Scenes/
-│       └── SampleScene.unity   # Core production scene
+│       └── SampleScene.unity   # Production Quest 3 Mixed Reality scene
+├── Exports/                    # Reference & Editor-exported .stl / .obj / .urdf files
 ├── Tools/
-│   └── udp_to_joint_states.py  # 60 Hz UDP to ROS / Isaac Sim telemetry bridge
-├── unity_vr_apps/              # Built Quest 3 APK binaries (Git LFS)
+│   └── udp_to_joint_states.py  # 60 Hz UDP to ROS 2 / standalone terminal telemetry bridge
+├── META_START_SUBMISSION.md    # Ready-to-paste Devpost answers & Meta Dashboard release steps
+├── USER_MANUAL.md              # End-user XR & desktop CAD studio manual
 └── README.md
 ```
-
----
-
-## 🏆 Hackathon Tracks & Recognition
-
-- **Nebius × NVIDIA Global AI Hackathon:** Physical AI Track (NVIDIA Nemotron via Nebius Token Factory).
-- **Meta Quest Spatial Computing:** Native Passthrough, Tabletop Scene Anchoring, and Hand Tracking Interaction.

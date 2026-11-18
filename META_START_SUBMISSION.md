@@ -6,54 +6,56 @@
 
 ### **Submission Name**
 ```text
-KineticCAD XR: Living Spatial Fusion 360 & Modular Robotics Studio
+KineticCAD XR: Spatial Fusion 360 & 3D-Printing Studio
 ```
 
 ### **Submission Tagline** *(138 / 140 characters)*
 ```text
-Hands-first MR CAD & robotics studio: capture 3D objects, snap modular joints, hold 1:1 prints in hand, Ghost-Carve CBFs, export STL/URDF.
+Controller-free MR Fusion 360 studio: caliper real desk parts, sculpt 12 CAD solids up to 900mm, hold 1:1 in hand, export .STL/.OBJ/.URDF.
 ```
 
 ### **Track & Eligible Prize Categories**
 * **Primary Track:** **Productivity** — *Best New Productivity Experience ($70,000)* / *Runner-Up ($35,000)*
 * **Targeted Special Awards ($25,000 each):**
-  1. **Best Agentic Interaction ($25,000):** Autonomous **AEGIS Physical AI Co-Pilot** + Neuro-Symbolic Synthesis (`nemotron-3-super-120b` + $<1\text{ ms}$ On-Device PoE Parametric Engine).
-  2. **Best First Five Minutes ($25,000):** Instant **MRUK Table Snap** + 90-Second Guided 3-Step Interactive Checklist (`3D Capture & CAD Feature` $\rightarrow$ `+Snap Module & Sweep W_i` $\rightarrow$ `Ghost Carve & Export`).
-  3. **Best Accessibility Forward Experience ($25,000):** One-Handed Seated Lap Mode (**Gaze + 260 ms Dwell Pinch** + **Thumb Microgestures**) + Colorblind-Safe Symbolic & Scale-Coded Telemetry (`[▲ OPTIMAL]` vs `[▼ SINGULARITY]`).
-  4. **Best Reason to Come Back ($25,000):** Dual 3D-Print Mesh (`.stl` / `.obj`) + ROS 2 `.urdf` / `_cbf_envelope.json` export utility + 5-Level Robotics Challenge with persistent career progression.
-  5. **Boldest Original Concept ($25,000):** Real-Time Swept-Volume CSG **"Ghost Carving"** ($\mathcal{W}_i \to h(\mathbf{x}) \ge 0$) + **"Hold-In-Your-Hands" 1:1 Physical Print Preview**.
+  1. **Best Agentic Interaction ($25,000):** Live **Agentic CAD & Slicer Co-Pilot** + Neuro-Symbolic Synthesis (`nemotron-3-super-120b` + $<1\text{ ms}$ On-Device Analytical Engine) offering real-time printability, overhang $>45^\circ$ tree-support warnings, and material-aware mass telemetry.
+  2. **Best First Five Minutes ($25,000):** Instant **MRUK Table Snap** (`720 mm × 540 mm` expanded desk) + clean 10-button Fusion 360 layout with an ergonomic **Palm-Locked Left-Hand Palette** and live spinning **In-VR Export Turntable**.
+  3. **Best Accessibility Forward Experience ($25,000):** Seated **Gaze + 850 ms Dwell Pinch**, Palm-Freeze resting stability (drop your hand and panels stay put), pull-back button release latch, and colorblind-safe symbolic feedback.
+  4. **Best Reason to Come Back ($25,000):** True multi-body `.STL` / `.OBJ` slicer export (`Exports/`) + ROS 2 `.urdf` / 60 Hz UDP robotics telemetry so makers return daily for real 3D prints.
+  5. **Boldest Original Concept ($25,000):** Bare-hand **Spatial Fusion 360** in Passthrough combining bimanual physical calipers, **12 watertight procedural CAD shapes**, direct **Extrude/Tilt/Move 3D handles**, and **Hold 1:1 Model on Right Hand**.
 
 ### **Division**
-* **New Experience** *(Conceived and built from scratch after September 24, 2026)*
+* **New Experience** *(Conceived and built from scratch for Meta Horizon Quest 3)*
 
 ### **Target Launch Date**
 * **Q1 2027** (Meta Horizon Store)
 
 ---
 
-## 2. Project Description *(492 words — strictly under the 500-word limit, hitting all 4 Judging Pillars & Special Awards)*
+## 2. Project Description *(455 words — strictly under the 500-word limit — ready to paste into Devpost)*
 
 ```markdown
 ### Inspiration
-Traditional desktop CAD like Fusion 360 feels "dead": you measure a real object with metal calipers, type numbers into a 2D monitor, extrude a static grey brick, and click through nested menus before anything moves. Worse, standing mid-air VR modeling tools fail within 120 seconds due to "Gorilla Arm" shoulder fatigue and "Heisenberg" pinch jitter ($2\text{–}6\text{ mm}$ index shift during pinch selection). We asked: *What if your physical desk and bare hands were a living "Spatial Fusion 360" where you capture real objects, snap motorized mechanisms together, hold 1:1 3D prints in your palm, and export both 3D-printable meshes and ROS 2 robots?*
+Desktop CAD tools like Fusion 360 feel disconnected from the physical world: you measure a desk object with metal calipers, type numbers into a 2D screen, orbit a rigid grey viewport with a mouse, and wait hours for a test print only to discover a 2 mm fit error. Meanwhile, older VR modeling tools suffer from mid-air shoulder fatigue ("Gorilla Arm") and pinch jitter that make precision engineering impossible. We built **KineticCAD XR** so your physical desk and bare hands become a living **Spatial Fusion 360 & 3D-Printing Studio** in Meta Quest 3 Mixed Reality.
 
-### How We Built It (Engineered for Meta’s 4 Judging Pillars & Special Awards)
-1. **Stage 1 — Real-World 3D Object Capture & Left-Hand Spatial Fusion CAD Palette:**
-   Anchored to your physical tabletop via Meta **MRUK** (`MRUKAnchor.SceneLabels.TABLE`), point both index fingers around any real object on your desk to capture **Width ($X$)**, **Depth ($Z$)**, and **Height ($Y$)** with $1\text{€}$-filtered precision. Raising your **Left Hand** summons a **Floating 6-Node Spatial Fusion CAD Palette** (with a live spinning 3D holographic primitive preview) where you can cycle **6 CAD Primitives** (**Box/Cube**, **Cylinder**, **Sphere**, **Torus Ring**, **Hollow Tube**, **L-Bracket**), stamp **Multi-Body Assemblies**, toggle **Boolean CSG** (**Join / Cut / Intersect**), apply **Linear ($3\times$) & Circular ($6\times$) Patterns**, **Push/Pull Extrude** faces, and compute exact mass ($\text{g}$) and slicer print time across **PLA+**, **PETG-CF**, **6061-T6 Al**, and **Ti-6Al-4V**.
+### What It Does & How We Built It
+1. **Bimanual Passthrough Calipers & 50% Expanded `720 mm × 540 mm` Workbench:**
+   Anchored to your desk via Meta **MRUK**, pointing both index fingers around any real-world object captures **Width × Depth × Height** in millimeters using a **$1\text{€}$ jitter filter** (`fc_min = 1.0 Hz`, `beta = 0.003`), spawning a 1:1 wireframe bounding twin right in place.
 
-2. **Stage 2 — Coaxial Magnetic Snap-Together Modular Assembly ($3\text{ to }6\text{ DoF}$):**
-   Bring your hand to the glowing coaxial magnetic snap port (or poke **`[+SNAP MODULE]`** / **Thumb-Swipe Forward**) to snap modular **Prismatic Linear Actuator Sliders** ($\mathcal{S}_{\text{pris}}$), **Revolute Wrist Hinges** ($\mathcal{S}_{\text{rev}}$), and your **Multi-Body 1:1 CAD Assembly** directly onto the kinematic tree. Our double-precision **Product of Exponentials (PoE)** and **Damped Least-Squares (DLS) IK** engine ($\lambda=0.06$) immediately wakes up at 90 FPS, letting you puppet custom $3\text{–}6\text{ DoF}$ mechanisms with your right index fingertip.
+2. **12 Watertight Procedural Engineering Solids (Up to `900 mm`) & Direct 3D Handles:**
+   Instead of nested menus, users sculpt directly around their model using **7 color-coded spatial handles**:
+   - **3 Extrude / Pull Handles (`10 mm – 900 mm`):** Drag **`+X` (Coral)**, **`+Y` (Emerald)**, and **`+Z` (Sky Blue)** faces with acoustic millimeter ticks.
+   - **3 Angular Tilt Handles (`-180°` to `+180°` in `5°` steps):** Drag **`TILT X°`**, **`TILT Y°`**, and **`TILT Z°`** handles.
+   - **Direct 3D Translation (`MOVE 3D (X/Y/Z)`):** Drag anywhere across the expanded build volume (`X: ±300 mm`, `Y: -75..+330 mm`, `Z: ±270 mm`) before combining bodies.
+   Cycle **12 custom procedural CAD meshes**—**Box/Cube, Cylinder, Sphere, Cone/Frustum, Torus Ring, Hollow Tube, Hex Prism (M-Nut), Wedge/45° Ramp, L-Bracket, U-Channel, T-Beam Extrusion, and Flanged Bearing**—rendered with watertight normals and true through-holes.
 
-3. **Stage 3 — "Hold-In-Your-Hands" 1:1 Print Preview & Swept-Volume "Ghost Carving" ($\mathcal{W}_i \to h(\mathbf{x}) \ge 0$):**
-   - **Hold 1:1 Print in Hand:** Toggle **`[HOLD 1:1 IN HAND]`** to hold the entire multi-body CAD assembly in your left palm in Passthrough to inspect ergonomics before 3D printing.
-   - **Ghost Carving & Agentic Co-Pilot:** As you puppet the arm, KineticCAD samples swept-volume capsules ($\mathcal{W}_i$) every $5^\circ$. The **AEGIS Co-Pilot Agent** flags clashing housing voxels in magenta ($h(\mathbf{x}) < 0$); a **Thumb-Tap** Boolean-carves a zero-clash clearance tunnel ($h(\mathbf{x}) \ge 0$).
+3. **Palm-Locked Left-Hand Palette & Hold 1:1 Model on Right Hand:**
+   Using a 3D cross-product palm-normal solver (`Vector3.Cross` across wrist, index, and pinky metacarpals), the **Left-Hand 6-Button Fusion 360 Palette** (`CREATE`, `+ADD / CUT BODY`, `COMBINE MODE`, `MODIFY: SHELL`, `PATTERN 1x/3x/6x`, `MATERIAL`) and the **Right-Hand 1:1 Print Preview** follow your hand *only* when your palm faces the headset camera—turn your palm away and they freeze rock-solid in 3D space!
 
-4. **Stage 4 — Multi-Body Mesh (`.STL` + `.OBJ`) & Robotics (`.URDF` + 60 Hz UDP) Export:**
-   One poke exports watertight **`.stl`** slicer meshes (tessellating Cubes, Cylinders, Geodesic Spheres, Torus Rings, Linear/Circular Patterns, and all stamped bodies), multi-group **`.obj`** CAD files, analytical **`.urdf`** robot descriptions, and **`_cbf_envelope.json`**, while streaming 60 Hz UDP joint states (`:9870`) to ROS 2 and NVIDIA Isaac Sim.
+4. **One-Poke Multi-Body `.STL` / `.OBJ` / `.URDF` Export & In-VR Turntable Gallery:**
+   The clean 4-button Front Desk bar (`HOLD 1:1 MODEL`, `RESET BODIES`, `EXPORT .STL / .OBJ`, `CENTER DESK`) pairs with a live **Agentic CAD & Slicer Co-Pilot** calculating mass (PLA+, PETG-CF, 6061-T6 Al, Ti-6Al-4V), print time, and overhang warnings, then spawns a spinning 3D turntable gallery right on your desk alongside slicer-ready `.stl`, `.obj`, and `.urdf` files.
 
 ### Future Plans
-- **Co-Located Multi-Engineer Rooms:** Shared spatial anchors for collaborative CAD assembly.
-- **Direct Microcontroller Bridge:** Live Wi-Fi servo streaming to physical Dynamixel/ESP32 hardware.
+Shared MRUK spatial rooms for multi-engineer CAD reviews and direct Wi-Fi slicer queueing to Bambu Lab / Prusa 3D printers.
 ```
 
 ---
@@ -62,20 +64,22 @@ Traditional desktop CAD like Fusion 360 feels "dead": you measure a real object 
 
 ```markdown
 ### How Hand Interactions & Gaze Are Implemented
-KineticCAD XR is 100% controller-free end-to-end, combining 3D object capture, coaxial magnetic snapping, native Meta OpenXR Microgestures, and accessible seated "Eyes & Hands" gaze-pinch ergonomics:
+KineticCAD XR is 100% controller-free end-to-end, engineered to eliminate mid-air UI drift and accidental double-taps:
 
-1. **Asymmetric Left/Right Hand Meta OpenXR Microgestures (`OVRHand.GetMicrogestureType`):**
-   - **Right Hand (Mechanism & Precision Scrubbing):** **Thumb-Swipe Left/Right** scrubs dimensions by $\pm 5.0\text{ mm}$, **Swipe Forward** snaps a modular joint & link onto the assembly ($3\to 6\text{ DoF}$), **Swipe Backward** cycles CAD features (`Shell` / `M4 Bosses` / `L-Bracket`), and **Thumb-Tap** executes **`[GHOST CARVE]`**.
-   - **Left Hand (Spatial Fusion CAD Palette):** Raising your left hand summons a 6-node floating CAD palette with a live spinning 3D primitive preview; **Left Thumb-Swipe Left/Right** cycles primitives (`Cube` / `Cylinder` / `Sphere` / `Torus` / `Tube` / `L-Bracket`), **Swipe Forward** stamps a new body into the **Multi-Body CAD Tree**, **Swipe Backward** cycles **Linear ($3\times$) & Circular ($6\times$) Patterns**, and **Thumb-Tap** toggles **Boolean CSG (`JOIN / CUT / INTERSECT`)**.
-2. **Direct 3D Face-Pull Gizmos (`+X/+Y/+Z`), Boolean Cursor Aiming, Magnetic Tether Snapping & Screw-Axis Pin Inspector:**
-   - **In-Place Passthrough Twin & Direct Face-Pull Handles:** Bimanual caliper lock spawns an in-place 1:1 wireframe bounding frame right at the midpoint between your fingertips over the real object, while dragging the **3D Face-Pull Handles (`+X W`, `+Y H`, `+Z D`)** continuously extrudes Width, Height, or Depth in $1\text{ mm}$ ticks.
-   - **3D Boolean CSG Aiming:** Hovering your fingertip inside the CAD solid aims a live **3D Boolean Cursor** on a $2\text{ mm}$ grid before stamping bores, slots, or bosses.
-   - **Magnetic Tether Carry-and-Snap & Screw-Axis Pin Flip ($\mathcal{S}_i$):** Carrying a module from the Left-Hand Palette toward the robot's distal snap ring projects a glowing **6-segment Magnetic Tether** and snaps your custom-sculpted CAD solid (with its exact dimensions, shape, and mass in grams) onto the kinematic chain; poking any joint's **Screw-Axis Pin (`ScrewAxisPin`)** directly flips that joint between `Revolute Pitch Z`, `Revolute Yaw Y`, `Revolute Roll X`, and `Prismatic Slider X`!
-3. **Accessible Seated Lap Mode (13 Spatial Buttons + 260 ms Dwell Gaze & Pinch):**
-   Users can physically poke any of the 7 front desk buttons or 6 Left-Hand CAD Palette buttons (`-5.5 mm` depression + procedural 35 ms mechanical switch click) or look within a $6.2^\circ$ FoV gaze cone and hold a 260 ms lap pinch for effortless one-handed seated control.
+1. **Palm-Normal Camera-Facing Lock (`HandFingertipReader.TryGetOvrPalmFacingCamera` & `TryGetOpenXrPalmFacingCamera`):**
+   We compute each hand's anatomical palm plane normal from wrist (`Hand_WristRoot`), index metacarpal (`Hand_Index1`), and pinky metacarpal (`Hand_Pinky1`) via chirality-corrected cross products (`Cross(vIndex, vPinky)` left, `Cross(vPinky, vIndex)` right). Both the floating **6-Button Left-Hand Fusion 360 Palette** and **Right-Hand 1:1 Print Preview** smoothly track your hand *only* when `Vector3.Dot(palmNormal, toCamera) > 0.35`. Rotating your palm away or resting your arm freezes the panel/model stationary in world space for effortless two-handed inspection and jitter-free button poking.
+
+2. **Debounced Tactile Poke + Pull-Back Release Latch (`QuestHandAndCommandBridge`):**
+   An `8 mm` cyan fingertip reticle (`HandsFirst_IndexReticleDot`) gives sub-centimeter aiming across **10 essential spatial buttons** (**4 Front Desk Toolbar buttons** including **`RESET BODIES`** + **6 Left-Hand Palette buttons**). Buttons use a tight **`2.4 cm` poke radius**, **`0.85 s` cooldown**, `-5.5 mm` physical spring depression, `35 ms` procedural mechanical audio click, and a **pull-back hysteresis latch** (must withdraw $> 4.2\text{ cm}$ before another trigger).
+
+3. **Direct 6-DoF Handle Dragging & Bimanual Pointing Detection:**
+   Pointing strictly with the index finger (`middle/ring/pinky` curled) engages the **Bimanual Calipers** (`1€`-filtered planar projection) and drags the **7 direct CAD handles** (`+X/+Y/+Z` Extrude, `TILT X°/Y°/Z°`, and `MOVE 3D X/Y/Z`).
+
+4. **Meta OpenXR Microgestures & Seated Gaze + Dwell Pinch Accessibility:**
+   Supports native **Thumb-Swipe** / **Thumb-Tap** (`OVRHand.GetMicrogestureType`) and a seated **`4.2°` FoV Gaze + `850 ms` Dwell Pinch** mode (`ResetPose` excluded to prevent accidental resets) for effortless one-handed desktop CAD.
 
 ### What Excites Us About the Future of VR
-Hands-first Mixed Reality + OpenXR Microgestures transform spatial computing into a **living CAD and physical engineering superpower**—letting creators measure real objects, snap mechanisms together, hold 1:1 prints in their hands, and export both 3D-printable meshes and ROS 2 robots.
+Hands-first Mixed Reality bridges digital design and physical reality—letting anyone measure a broken household clip or aerospace bracket on their desk, sculpt a parametric fix in 1:1 scale right in their palm, and send a watertight `.STL` straight to a 3D printer.
 ```
 
 ---
@@ -90,7 +94,7 @@ Meta judges **must** be able to install your build via a Meta Horizon Invite URL
    * Click **Create App** → Name it **`KineticCAD XR`** → Select **Meta Quest**.
 3. **Create the `Competition` Release Channel:**
    * Go to **Distribution → Release Channels** → Click **Create Channel** → Name it **`Competition`**.
-4. **Build & Upload the Latest APK:**
-   * In Unity, open **File → Build Profiles → Meta Quest** and click **Build** (save as `unity_vr_apps/KineticCAD_final_v3.apk`), then upload it to the **`Competition`** channel via **Meta Quest Developer Hub (MQDH)** or the web dashboard.
+4. **Upload Your Latest Tested APK:**
+   * Upload `unity_vr_apps/KineticCAD_final_v3_meta.apk` (or a fresh Unity Build from `File → Build Profiles → Meta Quest`) to the **`Competition`** channel via **Meta Quest Developer Hub (MQDH)** or the web dashboard.
 5. **Copy the Judge Invite URL:**
-   * Inside the **`Competition`** channel, enable **Invite Users via URL** and paste that `https://www.meta.com/s/...` link into your Devpost submission!
+   * Inside the **`Competition`** channel, enable **Invite Users via URL**, copy the `https://www.meta.com/s/...` link, and paste it into your Devpost submission!

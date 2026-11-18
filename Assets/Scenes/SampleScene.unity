@@ -148,16 +148,36 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 2483171112407822886, guid: f54012181eacade4ea242c65f804720f, type: 3}
+      propertyPath: _enableDynamicResolution
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2483171112407822886, guid: f54012181eacade4ea242c65f804720f, type: 3}
       propertyPath: isInsightPassthroughEnabled
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2483171112407822886, guid: f54012181eacade4ea242c65f804720f, type: 3}
+      propertyPath: quest2MaxDynamicResolutionScale
+      value: 1.3
+      objectReference: {fileID: 0}
+    - target: {fileID: 2483171112407822886, guid: f54012181eacade4ea242c65f804720f, type: 3}
+      propertyPath: quest2MinDynamicResolutionScale
+      value: 0.7
+      objectReference: {fileID: 0}
+    - target: {fileID: 2483171112407822886, guid: f54012181eacade4ea242c65f804720f, type: 3}
+      propertyPath: quest3MaxDynamicResolutionScale
+      value: 1.6
+      objectReference: {fileID: 0}
+    - target: {fileID: 2483171112407822886, guid: f54012181eacade4ea242c65f804720f, type: 3}
+      propertyPath: quest3MinDynamicResolutionScale
+      value: 0.7
+      objectReference: {fileID: 0}
+    - target: {fileID: 2483171112407822886, guid: f54012181eacade4ea242c65f804720f, type: 3}
+      propertyPath: requestScenePermissionOnStartup
       value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 2483171112407822886, guid: f54012181eacade4ea242c65f804720f, type: 3}
       propertyPath: requestBodyTrackingPermissionOnStartup
       value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 2483171112407822886, guid: f54012181eacade4ea242c65f804720f, type: 3}
-      propertyPath: requestScenePermissionOnStartup
-      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 2483171112407822886, guid: f54012181eacade4ea242c65f804720f, type: 3}
       propertyPath: requestPassthroughCameraAccessPermissionOnStartup
@@ -521,6 +541,10 @@ MonoBehaviour:
   PuppetActive: 1
   AutoOrbitTarget: 1
   ManualTargetLocalPos: {x: 0.14, y: 0.1, z: 0.04}
+  AutoOrbitInFlatMode: 1
+  KeyboardMoveSpeed: 0.22
+  CapturedDepthMm: 55
+  CapturedHeightMm: 42
 --- !u!114 &775951368
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -536,6 +560,10 @@ MonoBehaviour:
   MechanismController: {fileID: 775951367}
   DeskWorkspaceOrigin: {fileID: 775951365}
   FingertipReader: {fileID: 1737301133}
+  MinCutoff: 1
+  Beta: 0.003
+  StabilityDriftThresholdMm: 0.5
+  StabilityHoldDurationSec: 0.5
 --- !u!114 &775951369
 MonoBehaviour:
   m_ObjectHideFlags: 0
