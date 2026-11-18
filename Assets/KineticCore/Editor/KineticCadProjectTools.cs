@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Android;
@@ -291,8 +290,8 @@ namespace KineticCore.Editor
     }
 
     /// <summary>
-    /// Strips 32-bit armeabi-v7a libraries (both jniLibs and AAR-embedded assets/lib/armeabi-v7a) from the exported
-    /// Gradle project so Meta Horizon Store sees a pure 64-bit (arm64-v8a) APK with the unique KineticCAD package ID.
+    /// Restores clean Meta/Unity AARs, updates gradle.properties for AGP 9+, and configures Gradle rules so
+    /// 32-bit armeabi-v7a libraries are excluded and the unique KineticCAD package ID is enforced.
     /// </summary>
     public class KineticCadGradle64BitStripper : IPostGenerateGradleAndroidProject
     {
@@ -306,59 +305,106 @@ namespace KineticCore.Editor
             string gradleRoot = Directory.GetParent(unityLibraryPath)?.FullName ?? unityLibraryPath;
             string launcherDir = Path.Combine(gradleRoot, "launcher");
 
-            // 1. Strip armeabi-v7a entries inside AAR dependencies copied to unityLibrary/libs (e.g. OVRPlugin.aar)
-            string libsDir = Path.Combine(unityLibraryPath, "libs");
-            if (Directory.Exists(libsDir))
-            {
-                foreach (string aarFile in Directory.GetFiles(libsDir, "*.aar", SearchOption.AllDirectories))
-                {
-                    Strip32BitEntriesFromArchive(aarFile);
-                }
-            }
+            // 1. Restore clean original .aar files into unityLibrary/libs so Jetifier/AGP never sees corrupted archives
+            RestoreCleanAarDependencies(Path.Combine(unityLibraryPath, "libs"));
 
-            // 2. Remove any staged or cached armeabi-v7a directories in the Gradle workspace
+            // 2. Fix deprecated Jetifier / builtInKotlin flags in gradle.properties
+            PatchGradleProperties(Path.Combine(gradleRoot, "gradle.properties"));
+
+            // 3. Remove any staged or cached armeabi-v7a directories in the Gradle workspace
             DeleteAll32BitDirectories(gradleRoot);
 
-            // 3. Configure AGP 9+ build.gradle rules cleanly in both launcher and unityLibrary
+            // 4. Configure AGP 9+ build.gradle rules cleanly in both launcher and unityLibrary
             PatchGradleFile(Path.Combine(unityLibraryPath, "build.gradle"));
             PatchGradleFile(Path.Combine(launcherDir, "build.gradle"));
 
-            // 4. Safety net: replace any stale URP blank template package ID in generated manifests/gradle
+            // 5. Safety net: replace any stale URP blank template package ID in generated manifests/gradle
             EnsureUniquePackageIdInGeneratedFiles(gradleRoot);
         }
 
-        private static void Strip32BitEntriesFromArchive(string archivePath)
+        private static void RestoreCleanAarDependencies(string libsDir)
         {
-            try
-            {
-                int removed = 0;
-                using (ZipArchive archive = ZipFile.Open(archivePath, ZipArchiveMode.Update))
-                {
-                    List<ZipArchiveEntry> toDelete = new List<ZipArchiveEntry>();
-                    foreach (ZipArchiveEntry entry in archive.Entries)
-                    {
-                        string norm = entry.FullName.Replace('\\', '/');
-                        if (norm.IndexOf("armeabi-v7a/", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            norm.EndsWith("armeabi-v7a", StringComparison.OrdinalIgnoreCase))
-                        {
-                            toDelete.Add(entry);
-                        }
-                    }
+            if (!Directory.Exists(libsDir))
+                return;
 
-                    foreach (ZipArchiveEntry entry in toDelete)
+            string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+            string packageCacheDir = Path.Combine(projectRoot, "Library", "PackageCache");
+
+            var sourceRoots = new List<string>();
+            if (Directory.Exists(packageCacheDir))
+                sourceRoots.Add(packageCacheDir);
+
+            string androidPlayerModules = Path.Combine(EditorApplication.applicationContentsPath, "PlaybackEngines", "AndroidPlayer", "Modules");
+            if (Directory.Exists(androidPlayerModules))
+                sourceRoots.Add(androidPlayerModules);
+
+            foreach (string destAar in Directory.GetFiles(libsDir, "*.aar", SearchOption.TopDirectoryOnly))
+            {
+                string fileName = Path.GetFileName(destAar);
+                string cleanSource = FindCleanAarSource(sourceRoots, fileName);
+                if (string.IsNullOrEmpty(cleanSource) || !File.Exists(cleanSource))
+                    continue;
+
+                try
+                {
+                    var srcInfo = new FileInfo(cleanSource);
+                    var dstInfo = new FileInfo(destAar);
+                    if (srcInfo.Length != dstInfo.Length)
                     {
-                        entry.Delete();
-                        removed++;
+                        File.Copy(cleanSource, destAar, true);
+                        Debug.Log($"[KineticCAD Gradle] Restored clean {fileName} into unityLibrary/libs.");
                     }
                 }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[KineticCAD Gradle] Could not restore {fileName}: {ex.Message}");
+                }
+            }
+        }
 
-                if (removed > 0)
-                    Debug.Log($"[KineticCAD 64-Bit] Stripped {removed} 32-bit armeabi-v7a entries from {Path.GetFileName(archivePath)}.");
-            }
-            catch (Exception ex)
+        private static string FindCleanAarSource(List<string> searchRoots, string aarFileName)
+        {
+            foreach (string root in searchRoots)
             {
-                Debug.LogWarning($"[KineticCAD 64-Bit] Could not strip 32-bit entries from {archivePath}: {ex.Message}");
+                try
+                {
+                    string[] matches = Directory.GetFiles(root, aarFileName, SearchOption.AllDirectories);
+                    if (matches != null && matches.Length > 0)
+                        return matches[0];
+                }
+                catch { }
             }
+            return null;
+        }
+
+        private static void PatchGradleProperties(string propsPath)
+        {
+            if (!File.Exists(propsPath))
+                return;
+
+            string[] lines = File.ReadAllLines(propsPath);
+            var kept = new List<string>(lines.Length);
+            bool changed = false;
+
+            foreach (string line in lines)
+            {
+                string trimmed = line.Trim();
+                if (trimmed.StartsWith("android.builtInKotlin=", StringComparison.OrdinalIgnoreCase))
+                {
+                    changed = true;
+                    continue;
+                }
+                if (trimmed.Equals("android.enableJetifier=true", StringComparison.OrdinalIgnoreCase))
+                {
+                    kept.Add("android.enableJetifier=false");
+                    changed = true;
+                    continue;
+                }
+                kept.Add(line);
+            }
+
+            if (changed)
+                File.WriteAllLines(propsPath, kept);
         }
 
         private static void DeleteAll32BitDirectories(string rootDir)
@@ -385,11 +431,14 @@ namespace KineticCore.Editor
             string content = File.ReadAllText(gradleFilePath);
             string updated = content;
 
-            // Ensure AAPT2 ignores any armeabi-v7a directories in merged assets
-            const string defaultIgnoreMarker = "!*~:!*armeabi-v7a*";
-            if (!updated.Contains("!*armeabi-v7a*") && updated.Contains("!*~\""))
+            // Ensure AAPT2 ignores any armeabi-v7a directories in assets
+            if (updated.Contains(":!*armeabi-v7a*"))
             {
-                updated = updated.Replace("!*~\"", defaultIgnoreMarker + "\"");
+                updated = updated.Replace(":!*armeabi-v7a*", ":!armeabi-v7a");
+            }
+            else if (!updated.Contains(":!armeabi-v7a") && updated.Contains("!*~\""))
+            {
+                updated = updated.Replace("!*~\"", "!*~:!armeabi-v7a\"");
             }
 
             // Ensure AGP 8/9 packaging.jniLibs excludes any 32-bit native libraries
