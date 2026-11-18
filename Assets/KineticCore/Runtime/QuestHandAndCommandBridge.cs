@@ -26,8 +26,9 @@ namespace KineticCore.Runtime
         public MonoBehaviour HandFingertipReaderComponent;
 
         [Header("Desk Poke-Button Settings")]
-        public float ButtonPokeRadiusM = 0.052f;
-        public float ButtonCooldownSec = 0.55f;
+        public float ButtonPokeRadiusM = 0.024f;
+        public float ButtonCooldownSec = 0.85f;
+        private bool _pokeReleaseLatched = false;
 
         private XRHandSubsystem _handSubsystem;
         private HandFingertipReader _typedReader;
@@ -136,10 +137,10 @@ namespace KineticCore.Runtime
 
         private void CreateFingertipReticle()
         {
-            _fingertipReticle = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            _fingertipReticle.name = "HandsFirst_IndexReticleRing";
+            _fingertipReticle = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            _fingertipReticle.name = "HandsFirst_IndexReticleDot";
             Destroy(_fingertipReticle.GetComponent<Collider>());
-            _fingertipReticle.transform.localScale = new Vector3(0.022f, 0.0015f, 0.022f);
+            _fingertipReticle.transform.localScale = Vector3.one * 0.008f;
             _reticleRenderer = _fingertipReticle.GetComponent<Renderer>();
             SetColorSafe(_reticleRenderer, new Color(0.15f, 0.95f, 1.0f));
             _fingertipReticle.SetActive(false);
@@ -357,6 +358,11 @@ namespace KineticCore.Runtime
                 // Only activate Right Index Fingertip (CAD manipulation + button poke) when ONLY the right index finger is straight!
                 bool hasRightPoint = TryGetRightIndexPointingWorld(out Vector3 rightTipWorld);
                 bool hasLeftPoint = (_typedReader != null && _typedReader.LeftPointingOnly && _typedReader.LeftWorld.sqrMagnitude > 0.0001f);
+
+                if (!hasRightPoint && !hasLeftPoint)
+                {
+                    _pokeReleaseLatched = false;
+                }
 
                 if (_fingertipReticle != null)
                 {
@@ -711,10 +717,12 @@ namespace KineticCore.Runtime
         private void CheckDeskButtonPokes(Vector3 fingertipWorld, bool resetColorsIfNotPoked = true)
         {
             if (_buttonTransforms == null) return;
-            bool onCooldown = (Time.time - _lastPokeTime) < ButtonCooldownSec;
-            float hitRadius = Mathf.Max(ButtonPokeRadiusM, 0.048f);
-            float hoverRadius = hitRadius * 1.45f;
+            float effectiveCooldown = Mathf.Max(ButtonCooldownSec, 0.85f);
+            bool onCooldown = (Time.time - _lastPokeTime) < effectiveCooldown;
+            float hitRadius = 0.024f;
+            float hoverRadius = 0.044f;
             int currentHover = -1;
+            float minButtonDist = float.MaxValue;
 
             for (int i = 0; i < _buttonTransforms.Length; i++)
             {
@@ -722,20 +730,24 @@ namespace KineticCore.Runtime
                 Vector3 rs = _buttonRestLocalScales[i];
                 Vector3 rp = _buttonRestLocalPositions[i];
 
-                // Generous cylindrical/box hit zone around each button
-                float dx = Mathf.Abs(fingertipWorld.x - bPos.x);
-                float dy = Mathf.Abs(fingertipWorld.y - bPos.y);
-                float dz = Mathf.Abs(fingertipWorld.z - bPos.z);
+                Vector3 rel = _buttonTransforms[i].parent != null
+                    ? (_buttonTransforms[i].parent.InverseTransformPoint(fingertipWorld) - rp)
+                    : (fingertipWorld - bPos);
+                float dx = Mathf.Abs(rel.x);
+                float dy = Mathf.Abs(rel.y);
+                float dz = Mathf.Abs(rel.z);
                 float dist = Vector3.Distance(fingertipWorld, bPos);
+                if (dist < minButtonDist) minButtonDist = dist;
 
-                bool isTouching = (dist < hitRadius) || (dx < 0.042f && dy < 0.048f && dz < 0.042f);
+                bool isTouching = (dist < hitRadius) || (dx < 0.025f && dy < 0.018f && dz < 0.018f);
                 bool isHovering = !isTouching && (dist < hoverRadius);
                 if (isHovering) currentHover = i;
 
-                if (!onCooldown && isTouching)
+                if (!onCooldown && !_pokeReleaseLatched && isTouching)
                 {
                     _lastPokeTime = Time.time;
                     _lastClickedButtonIdx = i;
+                    _pokeReleaseLatched = true;
                     SetColorSafe(_buttonRenderers[i], Color.white);
                     // Physically depress button and play tactile mechanical click
                     _buttonTransforms[i].localScale = (i >= DeskBarCount)
@@ -757,6 +769,9 @@ namespace KineticCore.Runtime
                 }
             }
 
+            if (resetColorsIfNotPoked && minButtonDist > 0.042f)
+                _pokeReleaseLatched = false;
+
             if (currentHover >= 0 && currentHover != _hoveredButtonIdx)
             {
                 SpatialTactileAudio.Instance?.PlayHoverTick(_buttonTransforms[currentHover].position);
@@ -766,10 +781,16 @@ namespace KineticCore.Runtime
 
         /// <summary>
         /// "Eyes & Hands" seated mode: allows looking at any 3D desk button or Left-Hand CAD Palette button
-        /// (ResetPose excluded to prevent accidental workspace resets) and holding a thumb + index pinch for 0.26s.
+        /// (ResetPose excluded to prevent accidental workspace resets) and holding a thumb + index pinch for 0.85s.
         /// </summary>
         private void PollGazeAndMicroPinch(bool fingerPokeActive)
         {
+            if (fingerPokeActive)
+            {
+                _gazePinchHoldTimer = 0f;
+                _gazeFocusedButtonIdx = -1;
+                return;
+            }
             if (_buttonTransforms == null || MechanismController == null) return;
             Camera cam = MechanismController.HeadCamera != null ? MechanismController.HeadCamera : Camera.main;
             if (cam == null) return;
@@ -777,11 +798,11 @@ namespace KineticCore.Runtime
             Vector3 eyePos = cam.transform.position;
             Vector3 gazeDir = cam.transform.forward;
             int bestGazeIdx = -1;
-            float bestAngle = 6.2f; // Tight 6.2-degree FoV gaze cone for deliberate button selection
+            float bestAngle = 4.2f; // Tight 4.2-degree FoV gaze cone for deliberate button selection
 
             for (int i = 0; i < _buttonTransforms.Length; i++)
             {
-                // Exclude Calibrate Desk / ResetPose (index 6) from gaze-pinch so resting hands never reset the desk anchor
+                // Exclude Calibrate Desk / ResetPose (index 2) from gaze-pinch so resting hands never reset the desk anchor
                 if (_buttonActions[i] == "ResetPose") continue;
 
                 Vector3 toBtn = _buttonTransforms[i].position - eyePos;
@@ -805,36 +826,34 @@ namespace KineticCore.Runtime
                 _gazePinchHoldTimer += Time.unscaledDeltaTime;
             }
 
-            float dwellProgress = Mathf.Clamp01(_gazePinchHoldTimer / 0.26f);
+            float dwellProgress = Mathf.Clamp01(_gazePinchHoldTimer / 0.85f);
 
-            if (!fingerPokeActive)
+            for (int i = 0; i < _buttonTransforms.Length; i++)
             {
-                for (int i = 0; i < _buttonTransforms.Length; i++)
-                {
-                    if (i == _lastClickedButtonIdx && (Time.time - _lastPokeTime) <= 0.28f) continue;
-                    Vector3 rs = _buttonRestLocalScales[i];
-                    Vector3 rp = _buttonRestLocalPositions[i];
-                    bool gazeFocus = (i == bestGazeIdx);
-                    float highlight = gazeFocus ? (0.30f + 0.55f * dwellProgress) : 0f;
-                    SetColorSafe(_buttonRenderers[i], gazeFocus ? Color.Lerp(_buttonBaseColors[i], Color.white, highlight) : _buttonBaseColors[i]);
-                    _buttonTransforms[i].localScale = gazeFocus
-                        ? ((i >= DeskBarCount)
-                            ? new Vector3(rs.x * (1.04f + 0.04f * dwellProgress), rs.y * (1.04f + 0.04f * dwellProgress), rs.z * (1.0f - 0.22f * dwellProgress))
-                            : new Vector3(rs.x * (1.04f + 0.05f * dwellProgress), rs.y * (1.05f - 0.22f * dwellProgress), rs.z * (1.04f + 0.05f * dwellProgress)))
-                        : rs;
-                    _buttonTransforms[i].localPosition = rp + (gazeFocus
-                        ? ((i >= DeskBarCount) ? new Vector3(0f, 0f, 0.003f * dwellProgress) : new Vector3(0f, -0.003f * dwellProgress, 0f))
-                        : Vector3.zero);
-                }
+                if (i == _lastClickedButtonIdx && (Time.time - _lastPokeTime) <= 0.28f) continue;
+                Vector3 rs = _buttonRestLocalScales[i];
+                Vector3 rp = _buttonRestLocalPositions[i];
+                bool gazeFocus = (i == bestGazeIdx);
+                float highlight = gazeFocus ? (0.30f + 0.55f * dwellProgress) : 0f;
+                SetColorSafe(_buttonRenderers[i], gazeFocus ? Color.Lerp(_buttonBaseColors[i], Color.white, highlight) : _buttonBaseColors[i]);
+                _buttonTransforms[i].localScale = gazeFocus
+                    ? ((i >= DeskBarCount)
+                        ? new Vector3(rs.x * (1.04f + 0.04f * dwellProgress), rs.y * (1.04f + 0.04f * dwellProgress), rs.z * (1.0f - 0.22f * dwellProgress))
+                        : new Vector3(rs.x * (1.04f + 0.05f * dwellProgress), rs.y * (1.05f - 0.22f * dwellProgress), rs.z * (1.04f + 0.05f * dwellProgress)))
+                    : rs;
+                _buttonTransforms[i].localPosition = rp + (gazeFocus
+                    ? ((i >= DeskBarCount) ? new Vector3(0f, 0f, 0.003f * dwellProgress) : new Vector3(0f, -0.003f * dwellProgress, 0f))
+                    : Vector3.zero);
+            }
 
-                if (bestGazeIdx >= 0 && bestGazeIdx != _gazeFocusedButtonIdx)
-                {
-                    SpatialTactileAudio.Instance?.PlayHoverTick(_buttonTransforms[bestGazeIdx].position);
-                }
+            if (bestGazeIdx >= 0 && bestGazeIdx != _gazeFocusedButtonIdx)
+            {
+                SpatialTactileAudio.Instance?.PlayHoverTick(_buttonTransforms[bestGazeIdx].position);
             }
             _gazeFocusedButtonIdx = bestGazeIdx;
 
-            if (!_gazePinchTriggeredThisHold && _gazePinchHoldTimer >= 0.26f && bestGazeIdx >= 0 && (Time.time - _lastPokeTime) >= ButtonCooldownSec)
+            float gazeCooldown = Mathf.Max(ButtonCooldownSec, 0.85f);
+            if (!_gazePinchTriggeredThisHold && _gazePinchHoldTimer >= 0.85f && bestGazeIdx >= 0 && (Time.time - _lastPokeTime) >= gazeCooldown)
             {
                 _gazePinchTriggeredThisHold = true;
                 _gazePinchHoldTimer = 0f;
@@ -977,7 +996,8 @@ namespace KineticCore.Runtime
 
             if (mg != prevGesture && mg != OVRHand.MicrogestureType.NoGesture && mg != OVRHand.MicrogestureType.Invalid)
             {
-                if ((Time.unscaledTime - _lastMicrogestureTime) >= 0.30f)
+                bool handsBusy = _typedReader != null && (_typedReader.RightPointingOnly || _typedReader.LeftPointingOnly || _typedReader.LeftPalmFacingCamera);
+                if (!handsBusy && (Time.unscaledTime - _lastMicrogestureTime) >= 1.10f)
                 {
                     _lastMicrogestureTime = Time.unscaledTime;
                     bool isLeft = (hand == _leftOvrHand);

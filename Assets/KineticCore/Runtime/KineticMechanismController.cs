@@ -2323,9 +2323,9 @@ namespace KineticCore.Runtime
                 }
             }
 
-            // 2. Interactive 3D Combine Positioning Cursor (when hovering inside/over the 3D CAD Model / 50% larger workspace)
+            // 2. Interactive 3D Combine Positioning Cursor (only shown when explicitly aiming via Shift/Pinch right at the model)
             float distToWpCenter = Vector3.Distance(localPtr, wpCenter);
-            if (!_isHoldingWorkpiece && distToWpCenter < 0.27f && (PureCadStudioMode || CadBooleanModeIndex == 1 || CadBooleanModeIndex == 2 || aimBooleanRequested))
+            if (!_isHoldingWorkpiece && distToWpCenter < 0.065f && aimBooleanRequested)
             {
                 float maxX = Mathf.Max(12f, (float)ManualTestWidthMm * 0.72f);
                 float maxY = Mathf.Max(9f, (float)CapturedHeightMm * 0.72f);
@@ -2340,21 +2340,14 @@ namespace KineticCore.Runtime
 
                 if (_liveBooleanCursorObj != null)
                 {
-                    _liveBooleanCursorObj.SetActive(true);
-                    _liveBooleanCursorObj.transform.localPosition = wpCenter + _aimedBooleanOffsetMm * 0.001f;
-                    _liveBooleanCursorObj.transform.localRotation = Quaternion.Euler(ModelTiltDeg);
-                    float scaleFactor = (CadBooleanModeIndex == 1) ? 0.48f : 0.58f;
-                    float cw = Mathf.Clamp((float)(ManualTestWidthMm * 0.001 * scaleFactor), 0.012f, 0.375f);
-                    float ch = Mathf.Clamp((float)(CapturedHeightMm * 0.0005 * 0.7f), 0.006f, 0.225f);
-                    float cd = Mathf.Clamp((float)(CapturedDepthMm * 0.001 * scaleFactor), 0.012f, 0.375f);
-                    _liveBooleanCursorObj.transform.localScale = new Vector3(cw, ch, cd);
-                    Color curCol = (CadBooleanModeIndex == 1)
-                        ? new Color(1.0f, 0.15f, 0.45f)
-                        : ((CadBooleanModeIndex == 2) ? new Color(1.0f, 0.80f, 0.15f) : new Color(0.20f, 1.0f, 0.65f));
-                    SetColorSafe(_liveBooleanCursorRenderer, curCol);
+                    _liveBooleanCursorObj.SetActive(false);
                 }
 
                 StatusMessage = $"3D COMBINE AIM [{ActiveBooleanModeName}] @ ({offXMm:F0},{offYMm:F0},{offZMm:F0})mm -> Poke [+ADD / CUT BODY] to apply!";
+            }
+            else if (_liveBooleanCursorObj != null && _liveBooleanCursorObj.activeSelf)
+            {
+                _liveBooleanCursorObj.SetActive(false);
             }
 
             // 3. Drag-and-Snap Shape from the Left-Hand Palette 3D Preview directly onto the Center 3D CAD Model!
@@ -2436,7 +2429,13 @@ namespace KineticCore.Runtime
         {
             for (int i = 0; i < partList.Count; i++)
             {
-                if (partList[i] != null) Destroy(partList[i]);
+                if (partList[i] != null)
+                {
+                    MeshFilter mf = partList[i].GetComponent<MeshFilter>();
+                    if (mf != null && mf.sharedMesh != null && mf.sharedMesh.name.StartsWith("ProcCad_"))
+                        Destroy(mf.sharedMesh);
+                    Destroy(partList[i]);
+                }
             }
             partList.Clear();
 
@@ -2539,103 +2538,72 @@ namespace KineticCore.Runtime
                 AddSubSphere(parentContainer, partList, $"{prefix}_Sphere", offset, new Vector3(wM, hM, dM), matColor);
                 return;
             }
-            if (primitiveShape == 3) // Cone / Frustum (4-tier stepped tapered frustum)
+            if (primitiveShape == 3) // Cone / Frustum (smooth watertight conical frustum mesh)
             {
-                int tiers = 5;
-                float tierH = hM / tiers;
-                for (int t = 0; t < tiers; t++)
-                {
-                    float frac = 1f - (t / (float)tiers) * 0.72f;
-                    float yPos = -hM * 0.5f + (t + 0.5f) * tierH;
-                    AddSubCylinder(parentContainer, partList, $"{prefix}_ConeTier_{t}", offset + new Vector3(0f, yPos, 0f), new Vector3(wM * frac, tierH * 0.52f, dM * frac), matColor);
-                }
+                AddSubProceduralMesh(parentContainer, partList, $"{prefix}_ConeFrustum", offset, BuildFrustumConeMesh(wM, hM, dM, 0.16f, 28), matColor);
                 return;
             }
-            if (primitiveShape == 4) // Torus Ring (10 radial segments)
+            if (primitiveShape == 4) // Torus Ring (smooth continuous 3D torus ring mesh)
             {
-                float rRing = Mathf.Max(0.008f, Mathf.Min(wM, dM) * 0.38f);
-                float segSize = Mathf.Max(0.004f, wM * 0.24f);
-                for (int k = 0; k < 10; k++)
-                {
-                    float ang = k * Mathf.PI * 0.20f;
-                    Vector3 p = offset + new Vector3(Mathf.Cos(ang) * rRing, 0f, Mathf.Sin(ang) * rRing);
-                    AddSubSphere(parentContainer, partList, $"{prefix}_Torus_{k}", p, new Vector3(segSize, hM * 0.55f, segSize), matColor);
-                }
+                AddSubProceduralMesh(parentContainer, partList, $"{prefix}_TorusRing", offset, BuildTorusMesh(wM, hM, dM, 28, 14), matColor);
                 return;
             }
-            if (primitiveShape == 5) // Hollow Tube (outer sleeve + dark inner bore collar)
+            if (primitiveShape == 5) // Hollow Tube (watertight outer & inner wall cylindrical pipe)
             {
-                AddSubCylinder(parentContainer, partList, $"{prefix}_TubeOuter", offset, new Vector3(wM, hM * 0.5f, dM), matColor);
-                AddSubCylinder(parentContainer, partList, $"{prefix}_TubeBore", offset, new Vector3(wM * 0.68f, hM * 0.52f, dM * 0.68f), new Color(0.08f, 0.11f, 0.16f));
+                AddSubProceduralMesh(parentContainer, partList, $"{prefix}_HollowTube", offset, BuildHollowPrismTubeMesh(wM, hM, dM, 0.62f, 28), matColor);
                 return;
             }
-            if (primitiveShape == 6) // Hex Prism (M-Nut) - 3 intersecting 60° rotated flats + center bore
+            if (primitiveShape == 6) // Hex Prism (M-Nut) - true 6-sided flat-edged hex prism with real center bore
             {
-                for (int k = 0; k < 3; k++)
-                {
-                    GameObject hexBar = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    hexBar.name = $"{prefix}_HexFlat_{k}";
-                    Destroy(hexBar.GetComponent<Collider>());
-                    hexBar.transform.SetParent(parentContainer, false);
-                    hexBar.transform.localPosition = offset;
-                    hexBar.transform.localRotation = Quaternion.Euler(0f, k * 60f, 0f);
-                    hexBar.transform.localScale = new Vector3(wM * 0.86f, hM, dM * 0.50f);
-                    SetColorSafe(hexBar.GetComponent<Renderer>(), matColor);
-                    partList.Add(hexBar);
-                }
-                AddSubCylinder(parentContainer, partList, $"{prefix}_HexBore", offset, new Vector3(wM * 0.44f, hM * 0.52f, dM * 0.44f), new Color(0.08f, 0.11f, 0.16f));
+                AddSubProceduralMesh(parentContainer, partList, $"{prefix}_HexNut", offset, BuildHollowPrismTubeMesh(wM, hM, dM, 0.46f, 6, 30f), matColor);
                 return;
             }
-            if (primitiveShape == 7) // Wedge / 45° Ramp (base + sloped ramp plate)
+            if (primitiveShape == 7) // Wedge / 45° Ramp (exact 6-vertex triangular wedge prism)
             {
-                float baseT = Mathf.Max(0.004f, hM * 0.18f);
-                AddSubBox(parentContainer, partList, $"{prefix}_WedgeBase", offset + new Vector3(0f, -hM * 0.5f + baseT * 0.5f, 0f), new Vector3(wM, baseT, dM), matColor);
-                AddSubBox(parentContainer, partList, $"{prefix}_WedgeBack", offset + new Vector3(-wM * 0.40f, 0f, 0f), new Vector3(wM * 0.20f, hM, dM), matColor * 0.94f);
-                GameObject slope = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                slope.name = $"{prefix}_WedgeSlope";
-                Destroy(slope.GetComponent<Collider>());
-                slope.transform.SetParent(parentContainer, false);
-                slope.transform.localPosition = offset + new Vector3(wM * 0.05f, 0f, 0f);
-                float tiltDeg = -Mathf.Atan2(hM * 0.82f, wM * 0.82f) * Mathf.Rad2Deg;
-                slope.transform.localRotation = Quaternion.Euler(0f, 0f, tiltDeg);
-                float hyp = Mathf.Sqrt(wM * wM * 0.72f + hM * hM * 0.72f);
-                slope.transform.localScale = new Vector3(hyp, Mathf.Max(0.005f, hM * 0.22f), dM * 0.98f);
-                SetColorSafe(slope.GetComponent<Renderer>(), matColor * 1.08f);
-                partList.Add(slope);
+                AddSubProceduralMesh(parentContainer, partList, $"{prefix}_WedgeRamp", offset, BuildWedgeRampMesh(wM, hM, dM), matColor);
                 return;
             }
 
             float tWall = 0.0025f; // 2.5mm 3D-print shell wall
-            if (primitiveShape == 8 || featureOp == 3) // L-Bracket Structural Mount with Gusset Ribs
+            if (primitiveShape == 8 || featureOp == 3) // L-Bracket Structural Mount with Clean Gusset Ribs
             {
-                float flangeT = Mathf.Max(0.004f, Mathf.Min(wM, hM) * 0.20f);
-                AddSubBox(parentContainer, partList, $"{prefix}_LBracket_Base", offset + new Vector3(0f, -hM * 0.5f + flangeT * 0.5f, 0f), new Vector3(wM, flangeT, dM), matColor);
+                float flangeT = Mathf.Clamp(Mathf.Min(wM, hM) * 0.20f, 0.004f, Mathf.Min(wM, hM) * 0.42f);
+                float baseW = Mathf.Max(0.004f, wM - flangeT);
+                AddSubBox(parentContainer, partList, $"{prefix}_LBracket_Base", offset + new Vector3(flangeT * 0.5f, -hM * 0.5f + flangeT * 0.5f, 0f), new Vector3(baseW, flangeT, dM), matColor);
                 AddSubBox(parentContainer, partList, $"{prefix}_LBracket_Vert", offset + new Vector3(-wM * 0.5f + flangeT * 0.5f, 0f, 0f), new Vector3(flangeT, hM, dM), matColor * 0.94f);
-                AddSubBox(parentContainer, partList, $"{prefix}_LBracket_GussetF", offset + new Vector3(-wM * 0.18f, -hM * 0.12f, -dM * 0.40f), new Vector3(wM * 0.42f, hM * 0.42f, 0.003f), matColor * 1.15f);
-                AddSubBox(parentContainer, partList, $"{prefix}_LBracket_GussetB", offset + new Vector3(-wM * 0.18f, -hM * 0.12f,  dM * 0.40f), new Vector3(wM * 0.42f, hM * 0.42f, 0.003f), matColor * 1.15f);
+                float gusW = Mathf.Max(0.004f, (wM - flangeT) * 0.52f);
+                float gusH = Mathf.Max(0.004f, (hM - flangeT) * 0.52f);
+                float gusT = Mathf.Clamp(dM * 0.12f, 0.003f, 0.012f);
+                float gx = -wM * 0.5f + flangeT + gusW * 0.5f;
+                float gy = -hM * 0.5f + flangeT + gusH * 0.5f;
+                float gz = Mathf.Max(0f, dM * 0.5f - gusT * 0.5f);
+                AddSubProceduralMesh(parentContainer, partList, $"{prefix}_LBracket_GussetF", offset + new Vector3(gx, gy, -gz), BuildWedgeRampMesh(gusW, gusH, gusT), matColor * 1.12f);
+                AddSubProceduralMesh(parentContainer, partList, $"{prefix}_LBracket_GussetB", offset + new Vector3(gx, gy,  gz), BuildWedgeRampMesh(gusW, gusH, gusT), matColor * 1.12f);
                 return;
             }
             if (primitiveShape == 9) // U-Channel Structural Rail
             {
-                float wallT = Mathf.Max(0.004f, Mathf.Min(wM, hM) * 0.18f);
+                float wallT = Mathf.Clamp(Mathf.Min(wM, hM) * 0.18f, 0.004f, Mathf.Min(wM, hM) * 0.40f);
+                float sideH = Mathf.Max(0.004f, hM - wallT);
                 AddSubBox(parentContainer, partList, $"{prefix}_UChan_Base",  offset + new Vector3(0f, -hM * 0.5f + wallT * 0.5f, 0f), new Vector3(wM, wallT, dM), matColor);
-                AddSubBox(parentContainer, partList, $"{prefix}_UChan_Left",  offset + new Vector3(-wM * 0.5f + wallT * 0.5f, 0f, 0f), new Vector3(wallT, hM, dM), matColor * 0.92f);
-                AddSubBox(parentContainer, partList, $"{prefix}_UChan_Right", offset + new Vector3( wM * 0.5f - wallT * 0.5f, 0f, 0f), new Vector3(wallT, hM, dM), matColor * 0.92f);
+                AddSubBox(parentContainer, partList, $"{prefix}_UChan_Left",  offset + new Vector3(-wM * 0.5f + wallT * 0.5f, wallT * 0.5f, 0f), new Vector3(wallT, sideH, dM), matColor * 0.92f);
+                AddSubBox(parentContainer, partList, $"{prefix}_UChan_Right", offset + new Vector3( wM * 0.5f - wallT * 0.5f, wallT * 0.5f, 0f), new Vector3(wallT, sideH, dM), matColor * 0.92f);
                 return;
             }
             if (primitiveShape == 10) // T-Beam Extrusion
             {
-                float webT = Mathf.Max(0.004f, Mathf.Min(wM, hM) * 0.20f);
+                float webT = Mathf.Clamp(Mathf.Min(wM, hM) * 0.20f, 0.004f, Mathf.Min(wM, hM) * 0.42f);
+                float webH = Mathf.Max(0.004f, hM - webT);
                 AddSubBox(parentContainer, partList, $"{prefix}_TBeam_TopFlange", offset + new Vector3(0f, hM * 0.5f - webT * 0.5f, 0f), new Vector3(wM, webT, dM), matColor);
-                AddSubBox(parentContainer, partList, $"{prefix}_TBeam_CenterWeb", offset + new Vector3(0f, -webT * 0.25f, 0f), new Vector3(webT, Mathf.Max(0.006f, hM - webT), dM), matColor * 0.92f);
+                AddSubBox(parentContainer, partList, $"{prefix}_TBeam_CenterWeb", offset + new Vector3(0f, -webT * 0.5f, 0f), new Vector3(webT, webH, dM), matColor * 0.92f);
                 return;
             }
-            if (primitiveShape == 11) // Flanged Bearing Housing (base flange + tall boss hub + precision center bore)
+            if (primitiveShape == 11) // Flanged Bearing Housing (hollow base flange + coaxial hollow boss hub)
             {
-                float flangeH = Mathf.Max(0.004f, hM * 0.28f);
-                AddSubCylinder(parentContainer, partList, $"{prefix}_BearingFlange", offset + new Vector3(0f, -hM * 0.5f + flangeH * 0.5f, 0f), new Vector3(wM, flangeH * 0.5f, dM), matColor);
-                AddSubCylinder(parentContainer, partList, $"{prefix}_BearingHub", offset, new Vector3(wM * 0.64f, hM * 0.5f, dM * 0.64f), matColor * 1.08f);
-                AddSubCylinder(parentContainer, partList, $"{prefix}_BearingBore", offset, new Vector3(wM * 0.34f, hM * 0.53f, dM * 0.34f), new Color(0.08f, 0.11f, 0.16f));
+                float flangeH = Mathf.Clamp(hM * 0.30f, 0.003f, hM * 0.65f);
+                float hubH = Mathf.Max(0.003f, hM - flangeH);
+                AddSubProceduralMesh(parentContainer, partList, $"{prefix}_BearingFlange", offset + new Vector3(0f, -hM * 0.5f + flangeH * 0.5f, 0f), BuildHollowPrismTubeMesh(wM, flangeH, dM, 0.36f, 28), matColor);
+                AddSubProceduralMesh(parentContainer, partList, $"{prefix}_BearingHub", offset + new Vector3(0f, flangeH * 0.5f, 0f), BuildHollowPrismTubeMesh(wM * 0.62f, hubH, dM * 0.62f, 0.58f, 28), matColor * 1.08f);
                 return;
             }
 
@@ -2660,6 +2628,300 @@ namespace KineticCore.Runtime
                     AddSubCylinder(parentContainer, partList, $"{prefix}_M4_4", offset + new Vector3( bx, hM * 0.5f + 0.002f,  bz), new Vector3(0.006f, 0.0025f, 0.006f), bossCol);
                 }
             }
+        }
+
+        private void AddSubProceduralMesh(Transform parent, List<GameObject> list, string partName, Vector3 localPos, Mesh mesh, Color col)
+        {
+            GameObject go = new GameObject(partName);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localRotation = Quaternion.identity;
+            go.transform.localScale = Vector3.one;
+            MeshFilter mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = mesh;
+            MeshRenderer mr = go.AddComponent<MeshRenderer>();
+            SetColorSafe(mr, col);
+            list.Add(go);
+        }
+
+        /// <summary>Builds a watertight smooth conical frustum mesh centered at local origin.</summary>
+        private static Mesh BuildFrustumConeMesh(float wM, float hM, float dM, float topScale, int sides = 28)
+        {
+            float rxB = wM * 0.5f;
+            float rzB = dM * 0.5f;
+            float rxT = rxB * topScale;
+            float rzT = rzB * topScale;
+            float hy = hM * 0.5f;
+
+            var verts = new List<Vector3>();
+            var tris = new List<int>();
+
+            // Side wall (separate ring vertices for crisp top/bottom cap edges)
+            int sideStart = verts.Count;
+            for (int i = 0; i <= sides; i++)
+            {
+                float ang = (i % sides) * (Mathf.PI * 2f / sides);
+                float c = Mathf.Cos(ang);
+                float s = Mathf.Sin(ang);
+                verts.Add(new Vector3(rxB * c, -hy, rzB * s)); // 2*i (bottom)
+                verts.Add(new Vector3(rxT * c,  hy, rzT * s)); // 2*i + 1 (top)
+            }
+            for (int i = 0; i < sides; i++)
+            {
+                int b0 = sideStart + i * 2;
+                int t0 = b0 + 1;
+                int b1 = b0 + 2;
+                int t1 = b0 + 3;
+                tris.Add(b0); tris.Add(t0); tris.Add(t1);
+                tris.Add(b0); tris.Add(t1); tris.Add(b1);
+            }
+
+            // Top cap (+Y normal)
+            int topCenter = verts.Count;
+            verts.Add(new Vector3(0f, hy, 0f));
+            for (int i = 0; i <= sides; i++)
+            {
+                float ang = (i % sides) * (Mathf.PI * 2f / sides);
+                verts.Add(new Vector3(rxT * Mathf.Cos(ang), hy, rzT * Mathf.Sin(ang)));
+            }
+            for (int i = 0; i < sides; i++)
+            {
+                tris.Add(topCenter); tris.Add(topCenter + 1 + i + 1); tris.Add(topCenter + 1 + i);
+            }
+
+            // Bottom cap (-Y normal)
+            int botCenter = verts.Count;
+            verts.Add(new Vector3(0f, -hy, 0f));
+            for (int i = 0; i <= sides; i++)
+            {
+                float ang = (i % sides) * (Mathf.PI * 2f / sides);
+                verts.Add(new Vector3(rxB * Mathf.Cos(ang), -hy, rzB * Mathf.Sin(ang)));
+            }
+            for (int i = 0; i < sides; i++)
+            {
+                tris.Add(botCenter); tris.Add(botCenter + 1 + i); tris.Add(botCenter + 1 + i + 1);
+            }
+
+            Mesh mesh = new Mesh { name = "ProcCad_ConeFrustum" };
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        /// <summary>Builds a smooth continuous 3D torus ring mesh fitting wM x hM x dM.</summary>
+        private static Mesh BuildTorusMesh(float wM, float hM, float dM, int majorSegs = 28, int tubeSegs = 14)
+        {
+            float rTubeXZ = Mathf.Max(0.002f, Mathf.Min(wM, dM) * 0.16f);
+            float rTubeY = Mathf.Max(0.002f, hM * 0.5f);
+            float majRx = Mathf.Max(rTubeXZ * 1.05f, wM * 0.5f - rTubeXZ);
+            float majRz = Mathf.Max(rTubeXZ * 1.05f, dM * 0.5f - rTubeXZ);
+
+            var verts = new List<Vector3>();
+            var tris = new List<int>();
+
+            int stride = tubeSegs + 1;
+            for (int i = 0; i <= majorSegs; i++)
+            {
+                float u = (i % majorSegs) * (Mathf.PI * 2f / majorSegs);
+                float cu = Mathf.Cos(u);
+                float su = Mathf.Sin(u);
+                for (int j = 0; j <= tubeSegs; j++)
+                {
+                    float v = (j % tubeSegs) * (Mathf.PI * 2f / tubeSegs);
+                    float cv = Mathf.Cos(v);
+                    float sv = Mathf.Sin(v);
+                    verts.Add(new Vector3((majRx + rTubeXZ * cv) * cu, rTubeY * sv, (majRz + rTubeXZ * cv) * su));
+                }
+            }
+
+            for (int i = 0; i < majorSegs; i++)
+            {
+                for (int j = 0; j < tubeSegs; j++)
+                {
+                    int b0 = i * stride + j;
+                    int t0 = b0 + 1;
+                    int b1 = (i + 1) * stride + j;
+                    int t1 = b1 + 1;
+                    tris.Add(b0); tris.Add(t0); tris.Add(t1);
+                    tris.Add(b0); tris.Add(t1); tris.Add(b1);
+                }
+            }
+
+            Mesh mesh = new Mesh { name = "ProcCad_TorusRing" };
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        /// <summary>Builds a watertight hollow cylinder (sides=28) or hollow hexagonal prism (sides=6) with a true see-through center bore.</summary>
+        private static Mesh BuildHollowPrismTubeMesh(float wM, float hM, float dM, float innerRatio, int sides, float rotationOffsetDeg = 0f)
+        {
+            float outRx = wM * 0.5f;
+            float outRz = dM * 0.5f;
+            float inRx = outRx * Mathf.Clamp(innerRatio, 0.1f, 0.9f);
+            float inRz = outRz * Mathf.Clamp(innerRatio, 0.1f, 0.9f);
+            float hy = hM * 0.5f;
+            float rotRad = rotationOffsetDeg * Mathf.Deg2Rad;
+            bool flatSides = (sides <= 12);
+
+            var verts = new List<Vector3>();
+            var tris = new List<int>();
+
+            // 1. Outer vertical wall
+            if (flatSides)
+            {
+                for (int i = 0; i < sides; i++)
+                {
+                    float a0 = rotRad + i * (Mathf.PI * 2f / sides);
+                    float a1 = rotRad + ((i + 1) % sides) * (Mathf.PI * 2f / sides);
+                    int idx = verts.Count;
+                    verts.Add(new Vector3(outRx * Mathf.Cos(a0), -hy, outRz * Mathf.Sin(a0)));
+                    verts.Add(new Vector3(outRx * Mathf.Cos(a0),  hy, outRz * Mathf.Sin(a0)));
+                    verts.Add(new Vector3(outRx * Mathf.Cos(a1),  hy, outRz * Mathf.Sin(a1)));
+                    verts.Add(new Vector3(outRx * Mathf.Cos(a1), -hy, outRz * Mathf.Sin(a1)));
+                    tris.Add(idx); tris.Add(idx + 1); tris.Add(idx + 2);
+                    tris.Add(idx); tris.Add(idx + 2); tris.Add(idx + 3);
+                }
+            }
+            else
+            {
+                int start = verts.Count;
+                for (int i = 0; i <= sides; i++)
+                {
+                    float a = rotRad + (i % sides) * (Mathf.PI * 2f / sides);
+                    float c = Mathf.Cos(a), s = Mathf.Sin(a);
+                    verts.Add(new Vector3(outRx * c, -hy, outRz * s));
+                    verts.Add(new Vector3(outRx * c,  hy, outRz * s));
+                }
+                for (int i = 0; i < sides; i++)
+                {
+                    int b0 = start + i * 2;
+                    tris.Add(b0); tris.Add(b0 + 1); tris.Add(b0 + 3);
+                    tris.Add(b0); tris.Add(b0 + 3); tris.Add(b0 + 2);
+                }
+            }
+
+            // 2. Inner bore vertical wall (facing inward toward center axis)
+            if (flatSides)
+            {
+                for (int i = 0; i < sides; i++)
+                {
+                    float a0 = rotRad + i * (Mathf.PI * 2f / sides);
+                    float a1 = rotRad + ((i + 1) % sides) * (Mathf.PI * 2f / sides);
+                    int idx = verts.Count;
+                    verts.Add(new Vector3(inRx * Mathf.Cos(a0), -hy, inRz * Mathf.Sin(a0)));
+                    verts.Add(new Vector3(inRx * Mathf.Cos(a1), -hy, inRz * Mathf.Sin(a1)));
+                    verts.Add(new Vector3(inRx * Mathf.Cos(a1),  hy, inRz * Mathf.Sin(a1)));
+                    verts.Add(new Vector3(inRx * Mathf.Cos(a0),  hy, inRz * Mathf.Sin(a0)));
+                    tris.Add(idx); tris.Add(idx + 1); tris.Add(idx + 2);
+                    tris.Add(idx); tris.Add(idx + 2); tris.Add(idx + 3);
+                }
+            }
+            else
+            {
+                int start = verts.Count;
+                for (int i = 0; i <= sides; i++)
+                {
+                    float a = rotRad + (i % sides) * (Mathf.PI * 2f / sides);
+                    float c = Mathf.Cos(a), s = Mathf.Sin(a);
+                    verts.Add(new Vector3(inRx * c, -hy, inRz * s));
+                    verts.Add(new Vector3(inRx * c,  hy, inRz * s));
+                }
+                for (int i = 0; i < sides; i++)
+                {
+                    int b0 = start + i * 2;
+                    tris.Add(b0); tris.Add(b0 + 2); tris.Add(b0 + 3);
+                    tris.Add(b0); tris.Add(b0 + 3); tris.Add(b0 + 1);
+                }
+            }
+
+            // 3. Top annulus cap (+Y normal)
+            int topStart = verts.Count;
+            for (int i = 0; i <= sides; i++)
+            {
+                float a = rotRad + (i % sides) * (Mathf.PI * 2f / sides);
+                float c = Mathf.Cos(a), s = Mathf.Sin(a);
+                verts.Add(new Vector3(outRx * c, hy, outRz * s));
+                verts.Add(new Vector3(inRx * c,  hy, inRz * s));
+            }
+            for (int i = 0; i < sides; i++)
+            {
+                int o0 = topStart + i * 2;
+                int i0 = o0 + 1;
+                int o1 = o0 + 2;
+                int i1 = o0 + 3;
+                tris.Add(o0); tris.Add(i0); tris.Add(i1);
+                tris.Add(o0); tris.Add(i1); tris.Add(o1);
+            }
+
+            // 4. Bottom annulus cap (-Y normal)
+            int botStart = verts.Count;
+            for (int i = 0; i <= sides; i++)
+            {
+                float a = rotRad + (i % sides) * (Mathf.PI * 2f / sides);
+                float c = Mathf.Cos(a), s = Mathf.Sin(a);
+                verts.Add(new Vector3(outRx * c, -hy, outRz * s));
+                verts.Add(new Vector3(inRx * c,  -hy, inRz * s));
+            }
+            for (int i = 0; i < sides; i++)
+            {
+                int o0 = botStart + i * 2;
+                int i0 = o0 + 1;
+                int o1 = o0 + 2;
+                int i1 = o0 + 3;
+                tris.Add(o0); tris.Add(o1); tris.Add(i1);
+                tris.Add(o0); tris.Add(i1); tris.Add(i0);
+            }
+
+            Mesh mesh = new Mesh { name = sides <= 8 ? "ProcCad_HexNut" : "ProcCad_HollowTube" };
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        /// <summary>Builds a watertight 5-face triangular wedge prism mesh fitting wM x hM x dM.</summary>
+        private static Mesh BuildWedgeRampMesh(float wM, float hM, float dM)
+        {
+            float hx = wM * 0.5f, hy = hM * 0.5f, hz = dM * 0.5f;
+            Vector3 lbl = new Vector3(-hx, -hy, -hz), lbr = new Vector3(-hx, -hy, hz);
+            Vector3 ltl = new Vector3(-hx,  hy, -hz), ltr = new Vector3(-hx,  hy, hz);
+            Vector3 rbl = new Vector3( hx, -hy, -hz), rbr = new Vector3( hx, -hy, hz);
+
+            var verts = new List<Vector3>(18);
+            var tris = new List<int>(24);
+
+            void AddQuad(Vector3 a, Vector3 b, Vector3 c, Vector3 d)
+            {
+                int s = verts.Count;
+                verts.Add(a); verts.Add(b); verts.Add(c); verts.Add(d);
+                tris.Add(s); tris.Add(s + 1); tris.Add(s + 2);
+                tris.Add(s); tris.Add(s + 2); tris.Add(s + 3);
+            }
+            void AddTri(Vector3 a, Vector3 b, Vector3 c)
+            {
+                int s = verts.Count;
+                verts.Add(a); verts.Add(b); verts.Add(c);
+                tris.Add(s); tris.Add(s + 1); tris.Add(s + 2);
+            }
+
+            AddQuad(lbl, rbl, rbr, lbr); // Bottom (-Y): lbl->rbl->rbr & lbl->rbr->lbr
+            AddQuad(lbl, lbr, ltr, ltl); // Back vertical (-X): lbl->lbr->ltr & lbl->ltr->ltl
+            AddQuad(ltl, ltr, rbr, rbl); // Sloped ramp (+X, +Y): ltl->ltr->rbr & ltl->rbr->rbl
+            AddTri(lbl, ltl, rbl);       // Front Z side (-Z)
+            AddTri(lbr, rbr, ltr);       // Back Z side (+Z)
+
+            Mesh mesh = new Mesh { name = "ProcCad_WedgeRamp" };
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
         }
 
         private void AddSubSphere(Transform parent, List<GameObject> list, string partName, Vector3 localPos, Vector3 localScale, Color col)
