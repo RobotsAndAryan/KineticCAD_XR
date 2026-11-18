@@ -1904,7 +1904,7 @@ namespace KineticCore.Runtime
                 string objName = string.IsNullOrEmpty(objPath) ? "kinetic_cad.obj" : Path.GetFileName(objPath);
                 string folderHint = Application.isEditor
                     ? "PC Folder: E:\\Unity\\KineticCAD_XR\\Exports\\"
-                    : "Quest 3: /sdcard/Android/data/com.DefaultCompany.KineticCADXR/files/";
+                    : $"Quest 3: /sdcard/Android/data/{Application.identifier}/files/";
                 _exportedGalleryLabel.text =
                     $"✓ SAVED 3D MESH #{CareerUrdfExports}: {stlName} + {objName}\n" +
                     $"{ActivePrimitiveShapeName} | {ManualTestWidthMm:F0}x{CapturedDepthMm:F0}x{CapturedHeightMm:F0}mm | Tilt({ModelTiltDeg.x:F0}°,{ModelTiltDeg.y:F0}°,{ModelTiltDeg.z:F0}°)\n" +
@@ -3439,7 +3439,7 @@ namespace KineticCore.Runtime
                 string rName = CurrentSpec.robotName ?? "kinetic_cad";
                 string whereSaved = Application.isEditor
                     ? "PC Path: E:\\Unity\\KineticCAD_XR\\Exports\\"
-                    : "Quest 3 Path: /sdcard/Android/data/com.DefaultCompany.KineticCADXR/files/";
+                    : $"Quest 3 Path: /sdcard/Android/data/{Application.identifier}/files/";
                 _urdfInspectorText.text =
                     $"=== 3D PRINT (.STL / .OBJ) & EXPORTED MODEL VIEWER ===\n" +
                     $"Export Files: {rName}_cad.stl  &  {rName}_cad.obj  (Exports Saved: {CareerUrdfExports})\n" +

@@ -84,7 +84,7 @@ Computed via 3D cross-product palm normals (`HandFingertipReader.TryGetOvrPalmFa
 
 ### Pulling Exported `.STL` & `.OBJ` Prints from Quest 3
 ```powershell
-adb pull /sdcard/Android/data/com.DefaultCompany.KineticCADXR/files/ ./Exports/
+adb pull /sdcard/Android/data/com.RobotsAndAryan.KineticCADXR/files/ ./Exports/
 ```
 *(In the Unity Editor, exports write directly to `Exports/`.)*
 

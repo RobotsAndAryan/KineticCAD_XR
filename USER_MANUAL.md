@@ -82,9 +82,9 @@ When you poke **`EXPORT .STL / .OBJ`** (or press **`U`** on Desktop), KineticCAD
    - `<robot>_cad.stl` (ASCII STL millimeter units ready for Bambu Studio, PrusaSlicer, Cura)
    - `<robot>_cad.obj` (Multi-group Wavefront OBJ CAD mesh)
    - `<robot>.urdf` & `<robot>_cbf_envelope.json`
-3. **On Meta Quest 3 Headset:** Saved to `/sdcard/Android/data/com.DefaultCompany.KineticCADXR/files/`. Pull to PC via USB:
+3. **On Meta Quest 3 Headset:** Saved to `/sdcard/Android/data/com.RobotsAndAryan.KineticCADXR/files/`. Pull to PC via USB:
    ```powershell
-   adb pull /sdcard/Android/data/com.DefaultCompany.KineticCADXR/files/ ./Exports/
+   adb pull /sdcard/Android/data/com.RobotsAndAryan.KineticCADXR/files/ ./Exports/
    ```
 
 ---
