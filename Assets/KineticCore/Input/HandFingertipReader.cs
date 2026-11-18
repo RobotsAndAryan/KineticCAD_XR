@@ -428,13 +428,13 @@ namespace KineticCore.Input
             Vector3 vIndex = (iPos - wPos).normalized;
             Vector3 vPinky = (pPos - wPos).normalized;
             // In Unity's left-handed coordinate system:
-            // Left palm outward normal = Cross(vPinky, vIndex); Right palm outward normal = Cross(vIndex, vPinky)
+            // Left palm inward-to-camera normal = Cross(vIndex, vPinky); Right palm normal = Cross(vPinky, vIndex)
             Vector3 palmNormal = isLeft
-                ? Vector3.Cross(vPinky, vIndex).normalized
-                : Vector3.Cross(vIndex, vPinky).normalized;
+                ? Vector3.Cross(vIndex, vPinky).normalized
+                : Vector3.Cross(vPinky, vIndex).normalized;
 
             Vector3 toCam = (cameraWorldPos - palmWorldCenter).normalized;
-            return Vector3.Dot(palmNormal, toCam) > 0.42f;
+            return Vector3.Dot(palmNormal, toCam) > 0.35f;
         }
 
         public static bool TryGetOpenXrPalmFacingCamera(XRHand hand, bool isLeft, Transform trackingSpace, Vector3 cameraWorldPos, out Vector3 palmWorldCenter)
@@ -454,11 +454,11 @@ namespace KineticCore.Input
             Vector3 vIndex = (iPos - wPos).normalized;
             Vector3 vPinky = (pPos - wPos).normalized;
             Vector3 palmNormal = isLeft
-                ? Vector3.Cross(vPinky, vIndex).normalized
-                : Vector3.Cross(vIndex, vPinky).normalized;
+                ? Vector3.Cross(vIndex, vPinky).normalized
+                : Vector3.Cross(vPinky, vIndex).normalized;
 
             Vector3 toCam = (cameraWorldPos - palmWorldCenter).normalized;
-            return Vector3.Dot(palmNormal, toCam) > 0.42f;
+            return Vector3.Dot(palmNormal, toCam) > 0.35f;
         }
 
         public static bool TryGetOvrInputHandWorld(bool isLeft, Transform trackingSpace, out Vector3 worldPos, out bool isPointingOnly)
