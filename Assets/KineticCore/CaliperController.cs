@@ -154,16 +154,16 @@ public class CaliperController : MonoBehaviour
             double rawPlanarMeters = System.Math.Sqrt((double)dx * dx + (double)dz * dz);
             double rawWidthMm = rawPlanarMeters * 1000.0;
 
-            // Engage caliper measurement when BOTH hands are Index-Pointing within caliper range (10mm - 600mm)
-            if (rawWidthMm >= 10.0 && rawWidthMm <= 600.0)
+            // Engage caliper measurement when BOTH hands are Index-Pointing within caliper range (10mm - 900mm)
+            if (rawWidthMm >= 10.0 && rawWidthMm <= 900.0)
             {
                 IsMeasuringActive = true;
                 double now = Time.unscaledTimeAsDouble;
                 CaliperWidthMm = _widthFilter.Filter(rawWidthMm, now);
 
                 // Extract 3D Depth (Z-span or proportional footprint) and Height (Y elevation above physical desk surface)
-                double rawDepthMm = System.Math.Max(10.0, System.Math.Min(600.0, System.Math.Abs(dz) * 1000.0 > 18.0 ? System.Math.Abs(dz) * 1000.0 : rawWidthMm * 0.78));
-                double avgElevationM = System.Math.Max(0.010, System.Math.Min(0.600, (leftLocal.y + rightLocal.y) * 0.5));
+                double rawDepthMm = System.Math.Max(10.0, System.Math.Min(900.0, System.Math.Abs(dz) * 1000.0 > 18.0 ? System.Math.Abs(dz) * 1000.0 : rawWidthMm * 0.78));
+                double avgElevationM = System.Math.Max(0.010, System.Math.Min(0.900, (leftLocal.y + rightLocal.y) * 0.5));
                 double rawHeightMm = avgElevationM * 1000.0;
 
                 CaliperDepthMm = _depthFilter.Filter(rawDepthMm, now);
@@ -313,7 +313,7 @@ public class CaliperController : MonoBehaviour
         if (MechanismController == null)
             MechanismController = FindAnyObjectByType<KineticMechanismController>();
 
-        if (MechanismController != null && CaliperWidthMm >= 15.0 && CaliperWidthMm <= 320.0)
+        if (MechanismController != null && CaliperWidthMm >= 10.0 && CaliperWidthMm <= 900.0)
         {
             int bucket = Mathf.RoundToInt((float)(CaliperWidthMm / 5.0));
             if (bucket != _lastTickBucket && _lastTickBucket >= 0 && !IsStable)

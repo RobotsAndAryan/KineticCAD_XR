@@ -45,40 +45,34 @@ namespace KineticCore.Runtime
         private GameObject[] _leftPalettePreviewShapes;
         private Renderer[] _leftPalettePreviewRenderers;
 
+        private const int DeskBarCount = 3;
+
         private readonly string[] _buttonActions =
         {
-            // Front Desk Fusion 360 Toolbar (indices 0..6)
-            "CycleCadPrimitiveShape",
-            "StampNewCadBodyToAssembly",
-            "CycleCadFeatureOp",
-            "CycleModelTiltAngles",
+            // Front Desk Essential Toolbar (indices 0..2)
             "ToggleHandInspectMode",
             "ExportUrdf",
             "ResetPose",
-            // Left-Hand Spatial Fusion 360 CAD Palette (indices 7..12)
+            // Left-Hand Spatial Fusion 360 CAD Palette (indices 3..8)
             "CycleCadPrimitiveShape",
             "StampNewCadBodyToAssembly",
             "CycleCadBooleanMode",
+            "CycleCadFeatureOp",
             "CycleCadPatternArray",
-            "CycleDirectPushPullExtrude",
             "CycleCadMaterial"
         };
         private readonly string[] _buttonLabels =
         {
-            // Front Desk Fusion 360 Toolbar (indices 0..6)
-            "CREATE SHAPE\n(12 CAD Shapes)",
-            "+ADD / CUT BODY\n(Combine Shape)",
-            "MODIFY: SHELL\n(Hollow / Chamfer)",
-            "ROTATE / TILT\n(Pitch / Yaw / Roll)",
+            // Front Desk Essential Toolbar (indices 0..2)
             "HOLD 1:1 MODEL\n(On Right Hand)",
             "EXPORT .STL / .OBJ\n(Save & Preview)",
             "CENTER DESK\n(Reset View)",
-            // Left-Hand Spatial Fusion 360 CAD Palette (indices 7..12)
+            // Left-Hand Spatial Fusion 360 CAD Palette (indices 3..8)
             "CREATE: SHAPE\n(12 CAD Shapes)",
             "+ADD / CUT BODY\n(Place on Model)",
             "COMBINE MODE\n(Join / Cut Hole)",
+            "MODIFY: SHELL\n(Hollow / Chamfer)",
             "PATTERN\n(1x / Linear / Circ)",
-            "EXTRUDE / PULL\n(Up to 600mm)",
             "MATERIAL\n(PLA / CF / Al / Ti)"
         };
         private float _lastPokeTime = -10f;
@@ -160,35 +154,30 @@ namespace KineticCore.Runtime
             _buttonRestLocalScales = new Vector3[count];
             _buttonBaseColors = new Color[]
             {
-                // Front Desk Bar (indices 0..6)
-                new Color(0.0f, 0.75f, 0.95f), // Synthesize Topology (Cyan)
-                new Color(0.95f, 0.65f, 0.12f), // +Snap Module 3..6 DoF (Gold-Amber)
-                new Color(0.25f, 0.50f, 0.95f), // CAD Feature Shell/Boss/L-Bracket (Royal Blue)
-                new Color(0.10f, 0.85f, 0.72f), // Hold 1:1 Print in Hand (Teal)
-                new Color(0.95f, 0.20f, 0.65f), // Ghost Carve CBF (Magenta)
-                new Color(0.15f, 0.85f, 0.35f), // Export STL + OBJ + URDF (Emerald Green)
-                new Color(0.85f, 0.25f, 0.25f), // Calibrate Desk (Red)
-                // Left-Hand Spatial Fusion 360 CAD Palette (indices 7..12)
-                new Color(0.05f, 0.82f, 1.00f), // Prim Shape: Cube/Cyl/Sphere (Sky Cyan)
-                new Color(0.12f, 0.90f, 0.55f), // +Stamp Body (Emerald)
-                new Color(0.95f, 0.22f, 0.52f), // Boolean Join/Cut/Intersect (Crimson-Rose)
+                // Front Desk Essential Toolbar (indices 0..2)
+                new Color(0.10f, 0.85f, 0.72f), // Hold 1:1 Model on Right Hand (Teal)
+                new Color(0.15f, 0.85f, 0.35f), // Export STL + OBJ + Preview (Emerald Green)
+                new Color(0.85f, 0.25f, 0.25f), // Center Desk (Red)
+                // Left-Hand Spatial Fusion 360 CAD Palette (indices 3..8)
+                new Color(0.05f, 0.82f, 1.00f), // Create Shape: 12 CAD Shapes (Sky Cyan)
+                new Color(0.12f, 0.90f, 0.55f), // +Add / Cut Body (Emerald)
+                new Color(0.95f, 0.22f, 0.52f), // Combine Mode Join/Cut Hole/Intersect (Crimson-Rose)
+                new Color(0.25f, 0.50f, 0.95f), // Modify: Shell / Chamfer / Bosses (Royal Blue)
                 new Color(0.98f, 0.75f, 0.15f), // Pattern 1x/Linear/Circular (Amber Gold)
-                new Color(0.55f, 0.35f, 0.95f), // Push/Pull Face Extrude (Violet)
                 new Color(0.62f, 0.72f, 0.84f)  // Material PLA+/CF/Al/Ti (Titanium Silver)
             };
 
-            // 1. Front Desk Poke-Button Bar (indices 0..6)
+            // 1. Front Desk Poke-Button Bar (indices 0..2)
             GameObject barRoot = new GameObject("VR_Desk_PokeButtonBar");
             barRoot.transform.SetParent(DeskWorkspaceOrigin, false);
-            barRoot.transform.localPosition = new Vector3(0.08f, 0.016f, -0.22f);
+            barRoot.transform.localPosition = new Vector3(0.08f, 0.014f, -0.22f);
             barRoot.transform.localRotation = Quaternion.identity;
 
-            const int deskBarCount = 7;
-            for (int i = 0; i < deskBarCount; i++)
+            for (int i = 0; i < DeskBarCount; i++)
             {
-                float xOffset = (i - (deskBarCount - 1) * 0.5f) * 0.092f;
+                float xOffset = (i - (DeskBarCount - 1) * 0.5f) * 0.072f;
                 Vector3 restPos = new Vector3(xOffset, 0f, 0f);
-                Vector3 restScale = new Vector3(0.082f, 0.028f, 0.056f);
+                Vector3 restScale = new Vector3(0.060f, 0.022f, 0.042f);
 
                 GameObject btn = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 btn.name = $"VRButton_{_buttonActions[i]}";
@@ -204,15 +193,15 @@ namespace KineticCore.Runtime
 
                 WorldTextFactory.Create(
                     $"Label_{_buttonActions[i]}", barRoot.transform,
-                    new Vector3(xOffset, 0.032f, 0.0f), Quaternion.Euler(45f, 0f, 0f),
-                    0.0022f, 32, Color.white, _buttonLabels[i]);
+                    new Vector3(xOffset, 0.025f, 0.0f), Quaternion.Euler(45f, 0f, 0f),
+                    0.0018f, 32, Color.white, _buttonLabels[i]);
             }
 
-            // 2. Left-Hand Spatial Fusion 360 CAD Palette (indices 7..12)
+            // 2. Left-Hand Spatial Fusion 360 CAD Palette (indices 3..8)
             // Built in front-facing XY panel coordinates (-Z faces the user's eyes!) so buttons & text NEVER face away!
             GameObject leftPaletteObj = new GameObject("LeftHand_SpatialFusion_Palette");
             leftPaletteObj.transform.SetParent(DeskWorkspaceOrigin, false);
-            leftPaletteObj.transform.localPosition = new Vector3(-0.32f, 0.125f, -0.06f);
+            leftPaletteObj.transform.localPosition = new Vector3(-0.28f, 0.095f, -0.045f);
             leftPaletteObj.transform.localRotation = Quaternion.Euler(0f, -22f, 0f);
             _leftHandPaletteRoot = leftPaletteObj.transform;
 
@@ -222,13 +211,13 @@ namespace KineticCore.Runtime
             Destroy(slate.GetComponent<Collider>());
             slate.transform.SetParent(_leftHandPaletteRoot, false);
             slate.transform.localPosition = new Vector3(0f, 0.002f, 0.011f);
-            slate.transform.localScale = new Vector3(0.305f, 0.185f, 0.007f);
+            slate.transform.localScale = new Vector3(0.215f, 0.130f, 0.006f);
             SetColorSafe(slate.GetComponent<Renderer>(), new Color(0.06f, 0.10f, 0.16f));
 
             _leftPaletteHeaderLabel = WorldTextFactory.Create(
                 "LeftPalette_Header", _leftHandPaletteRoot,
-                new Vector3(0f, 0.076f, -0.005f), Quaternion.identity,
-                0.00185f, 30, new Color(0.35f, 0.95f, 1.0f),
+                new Vector3(0f, 0.054f, -0.004f), Quaternion.identity,
+                0.00135f, 30, new Color(0.35f, 0.95f, 1.0f),
                 "FUSION 360 TOOL PALETTE\n[Create | Combine | Extrude | Pattern]");
 
             // Create spinning 3D holographic primitive preview shapes above the Left-Hand Palette
@@ -248,7 +237,7 @@ namespace KineticCore.Runtime
                 pObj.name = $"LeftPalette_PreviewPrim_{p}";
                 Destroy(pObj.GetComponent<Collider>());
                 pObj.transform.SetParent(_leftHandPaletteRoot, false);
-                pObj.transform.localPosition = new Vector3(0f, 0.132f, -0.005f);
+                pObj.transform.localPosition = new Vector3(0f, 0.095f, -0.004f);
                 pObj.transform.localScale = primScales[p];
                 _leftPalettePreviewRenderers[p] = pObj.GetComponent<Renderer>();
                 SetColorSafe(_leftPalettePreviewRenderers[p], new Color(0.15f, 0.90f, 1.0f));
@@ -259,13 +248,13 @@ namespace KineticCore.Runtime
             // 6 CAD Tool Buttons arranged in a 3x2 front-facing XY grid (-Z faces straight toward the user's eyes!)
             for (int k = 0; k < 6; k++)
             {
-                int idx = deskBarCount + k;
+                int idx = DeskBarCount + k;
                 int col = k % 3;
                 int row = k / 3;
-                float px = (col - 1) * 0.090f;
-                float py = (row == 0) ? 0.026f : -0.038f;
+                float px = (col - 1) * 0.064f;
+                float py = (row == 0) ? 0.018f : -0.028f;
                 Vector3 restPos = new Vector3(px, py, 0f);
-                Vector3 restScale = new Vector3(0.080f, 0.050f, 0.020f);
+                Vector3 restScale = new Vector3(0.056f, 0.036f, 0.016f);
 
                 GameObject btn = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 btn.name = $"VRLeftPalette_{_buttonActions[idx]}";
@@ -281,8 +270,8 @@ namespace KineticCore.Runtime
 
                 WorldTextFactory.Create(
                     $"Label_{_buttonActions[idx]}", _leftHandPaletteRoot,
-                    new Vector3(px, py, -0.013f), Quaternion.identity,
-                    0.00185f, 28, Color.white, _buttonLabels[idx]);
+                    new Vector3(px, py, -0.011f), Quaternion.identity,
+                    0.00140f, 28, Color.white, _buttonLabels[idx]);
             }
         }
 
@@ -331,7 +320,7 @@ namespace KineticCore.Runtime
             if (!_leftPaletteInitialized && cam != null && cam.transform.position.sqrMagnitude > 0.0001f)
             {
                 _leftPaletteInitialized = true;
-                _leftHandPaletteRoot.localPosition = new Vector3(-0.32f, 0.125f, -0.06f);
+                _leftHandPaletteRoot.localPosition = new Vector3(-0.28f, 0.095f, -0.045f);
                 Vector3 initToPalette = _leftHandPaletteRoot.position - cam.transform.position;
                 if (initToPalette.sqrMagnitude > 0.001f)
                     _leftHandPaletteRoot.rotation = Quaternion.LookRotation(initToPalette.normalized, Vector3.up);
@@ -390,7 +379,7 @@ namespace KineticCore.Runtime
                     if (MechanismController != null && DeskWorkspaceOrigin != null)
                     {
                         Vector3? palettePreviewPos = (_leftHandPaletteRoot != null)
-                            ? (Vector3?)_leftHandPaletteRoot.TransformPoint(new Vector3(0f, 0.132f, -0.005f))
+                            ? (Vector3?)_leftHandPaletteRoot.TransformPoint(new Vector3(0f, 0.095f, -0.004f))
                             : null;
                         bool handledDirectCad = MechanismController.TryHandleDirectSpatialCadManipulation(
                             rightTipWorld, true, -1, palettePreviewPos, IsEitherHandPinching());
@@ -471,10 +460,10 @@ namespace KineticCore.Runtime
                             SetColorSafe(_buttonRenderers[i], Color.white);
                             Vector3 rs = _buttonRestLocalScales[i];
                             Vector3 rp = _buttonRestLocalPositions[i];
-                            _buttonTransforms[i].localScale = (i >= 7)
+                            _buttonTransforms[i].localScale = (i >= DeskBarCount)
                                 ? new Vector3(rs.x * 1.06f, rs.y * 1.06f, rs.z * 0.65f)
                                 : new Vector3(rs.x * 1.08f, rs.y * 0.72f, rs.z * 1.08f);
-                            _buttonTransforms[i].localPosition = rp + ((i >= 7) ? new Vector3(0f, 0f, 0.0045f) : new Vector3(0f, -0.005f, 0f));
+                            _buttonTransforms[i].localPosition = rp + ((i >= DeskBarCount) ? new Vector3(0f, 0f, 0.0045f) : new Vector3(0f, -0.005f, 0f));
                             SpatialTactileAudio.Instance?.PlayPokeClick(_buttonTransforms[i].position);
                             InvokeControllerCommand(_buttonActions[i]);
                             return;
@@ -612,7 +601,7 @@ namespace KineticCore.Runtime
                     Vector3 worldHit = ray.GetPoint(enter);
                     bool shiftHeld = KInput.GetKey(KeyCode.LeftShift) || KInput.GetKey(KeyCode.RightShift);
                     Vector3? palettePreviewPos = (_leftHandPaletteRoot != null)
-                        ? (Vector3?)_leftHandPaletteRoot.TransformPoint(new Vector3(0f, 0.132f, -0.005f))
+                        ? (Vector3?)_leftHandPaletteRoot.TransformPoint(new Vector3(0f, 0.095f, -0.004f))
                         : null;
                     if (MechanismController.TryHandleDirectSpatialCadManipulation(worldHit, true, -1, palettePreviewPos, shiftHeld))
                         return;
@@ -723,7 +712,7 @@ namespace KineticCore.Runtime
         {
             if (_buttonTransforms == null) return;
             bool onCooldown = (Time.time - _lastPokeTime) < ButtonCooldownSec;
-            float hitRadius = Mathf.Max(ButtonPokeRadiusM, 0.062f);
+            float hitRadius = Mathf.Max(ButtonPokeRadiusM, 0.048f);
             float hoverRadius = hitRadius * 1.45f;
             int currentHover = -1;
 
@@ -739,7 +728,7 @@ namespace KineticCore.Runtime
                 float dz = Mathf.Abs(fingertipWorld.z - bPos.z);
                 float dist = Vector3.Distance(fingertipWorld, bPos);
 
-                bool isTouching = (dist < hitRadius) || (dx < 0.056f && dy < 0.060f && dz < 0.056f);
+                bool isTouching = (dist < hitRadius) || (dx < 0.042f && dy < 0.048f && dz < 0.042f);
                 bool isHovering = !isTouching && (dist < hoverRadius);
                 if (isHovering) currentHover = i;
 
@@ -749,10 +738,10 @@ namespace KineticCore.Runtime
                     _lastClickedButtonIdx = i;
                     SetColorSafe(_buttonRenderers[i], Color.white);
                     // Physically depress button and play tactile mechanical click
-                    _buttonTransforms[i].localScale = (i >= 7)
+                    _buttonTransforms[i].localScale = (i >= DeskBarCount)
                         ? new Vector3(rs.x * 1.06f, rs.y * 1.06f, rs.z * 0.65f)
                         : new Vector3(rs.x * 1.08f, rs.y * 0.70f, rs.z * 1.08f);
-                    _buttonTransforms[i].localPosition = rp + ((i >= 7) ? new Vector3(0f, 0f, 0.0045f) : new Vector3(0f, -0.0055f, 0f));
+                    _buttonTransforms[i].localPosition = rp + ((i >= DeskBarCount) ? new Vector3(0f, 0f, 0.0045f) : new Vector3(0f, -0.0055f, 0f));
                     SpatialTactileAudio.Instance?.PlayPokeClick(bPos);
                     InvokeControllerCommand(_buttonActions[i]);
                     return;
@@ -829,12 +818,12 @@ namespace KineticCore.Runtime
                     float highlight = gazeFocus ? (0.30f + 0.55f * dwellProgress) : 0f;
                     SetColorSafe(_buttonRenderers[i], gazeFocus ? Color.Lerp(_buttonBaseColors[i], Color.white, highlight) : _buttonBaseColors[i]);
                     _buttonTransforms[i].localScale = gazeFocus
-                        ? ((i >= 7)
+                        ? ((i >= DeskBarCount)
                             ? new Vector3(rs.x * (1.04f + 0.04f * dwellProgress), rs.y * (1.04f + 0.04f * dwellProgress), rs.z * (1.0f - 0.22f * dwellProgress))
                             : new Vector3(rs.x * (1.04f + 0.05f * dwellProgress), rs.y * (1.05f - 0.22f * dwellProgress), rs.z * (1.04f + 0.05f * dwellProgress)))
                         : rs;
                     _buttonTransforms[i].localPosition = rp + (gazeFocus
-                        ? ((i >= 7) ? new Vector3(0f, 0f, 0.003f * dwellProgress) : new Vector3(0f, -0.003f * dwellProgress, 0f))
+                        ? ((i >= DeskBarCount) ? new Vector3(0f, 0f, 0.003f * dwellProgress) : new Vector3(0f, -0.003f * dwellProgress, 0f))
                         : Vector3.zero);
                 }
 
@@ -854,10 +843,10 @@ namespace KineticCore.Runtime
                 Vector3 rs = _buttonRestLocalScales[bestGazeIdx];
                 Vector3 rp = _buttonRestLocalPositions[bestGazeIdx];
                 SetColorSafe(_buttonRenderers[bestGazeIdx], Color.white);
-                _buttonTransforms[bestGazeIdx].localScale = (bestGazeIdx >= 7)
+                _buttonTransforms[bestGazeIdx].localScale = (bestGazeIdx >= DeskBarCount)
                     ? new Vector3(rs.x * 1.06f, rs.y * 1.06f, rs.z * 0.65f)
                     : new Vector3(rs.x * 1.08f, rs.y * 0.70f, rs.z * 1.08f);
-                _buttonTransforms[bestGazeIdx].localPosition = rp + ((bestGazeIdx >= 7) ? new Vector3(0f, 0f, 0.0045f) : new Vector3(0f, -0.0055f, 0f));
+                _buttonTransforms[bestGazeIdx].localPosition = rp + ((bestGazeIdx >= DeskBarCount) ? new Vector3(0f, 0f, 0.0045f) : new Vector3(0f, -0.0055f, 0f));
                 SpatialTactileAudio.Instance?.PlayPokeClick(_buttonTransforms[bestGazeIdx].position);
                 InvokeControllerCommand(_buttonActions[bestGazeIdx]);
             }
@@ -995,24 +984,24 @@ namespace KineticCore.Runtime
                     switch (mg)
                     {
                         case OVRHand.MicrogestureType.SwipeLeft:
-                            if (isLeft) { PulseButtonVisual(7); MechanismController.CycleCadPrimitiveShape(); }
-                            else        { PulseButtonVisual(0); MechanismController.ScrubDimensionMm(-5.0); }
+                            if (isLeft) { PulseButtonVisual(3); MechanismController.CycleCadPrimitiveShape(); }
+                            else        { PulseButtonVisual(3); MechanismController.ScrubDimensionMm(-5.0); }
                             break;
                         case OVRHand.MicrogestureType.SwipeRight:
-                            if (isLeft) { PulseButtonVisual(7); MechanismController.CycleCadPrimitiveShape(); }
-                            else        { PulseButtonVisual(0); MechanismController.ScrubDimensionMm(+5.0); }
+                            if (isLeft) { PulseButtonVisual(3); MechanismController.CycleCadPrimitiveShape(); }
+                            else        { PulseButtonVisual(3); MechanismController.ScrubDimensionMm(+5.0); }
                             break;
                         case OVRHand.MicrogestureType.SwipeForward:
-                            if (isLeft) { PulseButtonVisual(8); MechanismController.StampNewCadBodyToAssembly(); }
-                            else        { PulseButtonVisual(1); MechanismController.StampNewCadBodyToAssembly(); }
+                            if (isLeft) { PulseButtonVisual(4); MechanismController.StampNewCadBodyToAssembly(); }
+                            else        { PulseButtonVisual(4); MechanismController.StampNewCadBodyToAssembly(); }
                             break;
                         case OVRHand.MicrogestureType.SwipeBackward:
-                            if (isLeft) { PulseButtonVisual(10); MechanismController.CycleCadPatternArray(); }
-                            else        { PulseButtonVisual(2);  MechanismController.CycleCadFeatureOp(); }
+                            if (isLeft) { PulseButtonVisual(7); MechanismController.CycleCadPatternArray(); }
+                            else        { PulseButtonVisual(6); MechanismController.CycleCadFeatureOp(); }
                             break;
                         case OVRHand.MicrogestureType.ThumbTap:
-                            if (isLeft) { PulseButtonVisual(9); MechanismController.CycleCadBooleanMode(); }
-                            else        { PulseButtonVisual(5); MechanismController.ExportUrdf(); }
+                            if (isLeft) { PulseButtonVisual(5); MechanismController.CycleCadBooleanMode(); }
+                            else        { PulseButtonVisual(1); MechanismController.ExportUrdf(); }
                             break;
                     }
                 }
@@ -1028,10 +1017,10 @@ namespace KineticCore.Runtime
             Vector3 rs = _buttonRestLocalScales[idx];
             Vector3 rp = _buttonRestLocalPositions[idx];
             SetColorSafe(_buttonRenderers[idx], Color.white);
-            _buttonTransforms[idx].localScale = (idx >= 7)
+            _buttonTransforms[idx].localScale = (idx >= DeskBarCount)
                 ? new Vector3(rs.x * 1.06f, rs.y * 1.06f, rs.z * 0.65f)
                 : new Vector3(rs.x * 1.08f, rs.y * 0.70f, rs.z * 1.08f);
-            _buttonTransforms[idx].localPosition = rp + ((idx >= 7) ? new Vector3(0f, 0f, 0.0045f) : new Vector3(0f, -0.0055f, 0f));
+            _buttonTransforms[idx].localPosition = rp + ((idx >= DeskBarCount) ? new Vector3(0f, 0f, 0.0045f) : new Vector3(0f, -0.0055f, 0f));
             SpatialTactileAudio.Instance?.PlayPokeClick(_buttonTransforms[idx].position);
         }
 
