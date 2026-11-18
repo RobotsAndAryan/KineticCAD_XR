@@ -1004,9 +1004,9 @@ namespace KineticCore.Runtime
         public void TranslateModelMm(Vector3 deltaMm)
         {
             ModelTranslationMm = new Vector3(
-                Mathf.Clamp(ModelTranslationMm.x + deltaMm.x, -200f, 200f),
-                Mathf.Clamp(ModelTranslationMm.y + deltaMm.y, -100f, 250f),
-                Mathf.Clamp(ModelTranslationMm.z + deltaMm.z, -200f, 200f));
+                Mathf.Clamp(ModelTranslationMm.x + deltaMm.x, -300f, 300f),
+                Mathf.Clamp(ModelTranslationMm.y + deltaMm.y, -75f, 330f),
+                Mathf.Clamp(ModelTranslationMm.z + deltaMm.z, -270f, 270f));
             SpatialTactileAudio.Instance?.PlayCaliperTick();
             UpdateSampleWorkpieceVisual(ManualTestWidthMm);
             StatusMessage = $"MOVE 3D (X/Y/Z) -> Offset ({ModelTranslationMm.x:F0}, {ModelTranslationMm.y:F0}, {ModelTranslationMm.z:F0}) mm | Tilt ({ModelTiltDeg.x:F0}°, {ModelTiltDeg.y:F0}°, {ModelTiltDeg.z:F0}°)";
@@ -1375,7 +1375,7 @@ namespace KineticCore.Runtime
             Destroy(deskMat.GetComponent<Collider>());
             deskMat.transform.SetParent(DeskWorkspaceOrigin, false);
             deskMat.transform.localPosition = new Vector3(0.08f, -0.004f, 0.0f);
-            deskMat.transform.localScale = new Vector3(0.48f, 0.006f, 0.36f);
+            deskMat.transform.localScale = new Vector3(0.72f, 0.008f, 0.54f);
             SetColorSafe(deskMat.GetComponent<Renderer>(), new Color(0.14f, 0.20f, 0.30f));
 
             // Create a subtle, clearly labelled 3D reference caliper gauge on the desk showing the locked object width (mm)
@@ -1833,7 +1833,7 @@ namespace KineticCore.Runtime
         {
             _exportedGalleryRoot = new GameObject("ExportedModel_3D_GalleryPedestal");
             _exportedGalleryRoot.transform.SetParent(DeskWorkspaceOrigin, false);
-            _exportedGalleryRoot.transform.localPosition = new Vector3(0.24f, 0.001f, 0.02f);
+            _exportedGalleryRoot.transform.localPosition = new Vector3(0.32f, 0.001f, 0.03f);
             _exportedGalleryRoot.transform.localRotation = Quaternion.identity;
 
             GameObject pedestalPad = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -1841,7 +1841,7 @@ namespace KineticCore.Runtime
             Destroy(pedestalPad.GetComponent<Collider>());
             pedestalPad.transform.SetParent(_exportedGalleryRoot.transform, false);
             pedestalPad.transform.localPosition = new Vector3(0f, 0.002f, 0f);
-            pedestalPad.transform.localScale = new Vector3(0.115f, 0.0025f, 0.115f);
+            pedestalPad.transform.localScale = new Vector3(0.172f, 0.0035f, 0.172f);
             SetColorSafe(pedestalPad.GetComponent<Renderer>(), new Color(0.10f, 0.55f, 0.36f));
 
             GameObject modelHolder = new GameObject("ExportedGallery_ModelContainer");
@@ -1867,9 +1867,9 @@ namespace KineticCore.Runtime
             float rawW = Mathf.Clamp((float)(ManualTestWidthMm * 0.001), 0.010f, 0.600f);
             float rawD = Mathf.Clamp((float)(CapturedDepthMm * 0.001), 0.010f, 0.600f);
             float rawH = Mathf.Clamp((float)(CapturedHeightMm * 0.001), 0.010f, 0.600f);
-            // Fit large 600mm models neatly onto the 12cm gallery turntable while keeping proportions 100% exact
+            // Fit large 600mm models neatly onto the 17cm gallery turntable while keeping proportions 100% exact
             float maxDim = Mathf.Max(rawW, Mathf.Max(rawD, rawH));
-            float galleryFitScale = (maxDim > 0.13f) ? (0.13f / maxDim) : 1.0f;
+            float galleryFitScale = (maxDim > 0.195f) ? (0.195f / maxDim) : 1.0f;
 
             float gw = rawW * galleryFitScale;
             float gd = rawD * galleryFitScale;
@@ -1936,7 +1936,7 @@ namespace KineticCore.Runtime
                 hGo.name = handleNames[a];
                 // Keep Collider enabled so Desktop Mouse Raycast and VR Fingertip distance checks both work!
                 hGo.transform.SetParent(DeskWorkspaceOrigin, false);
-                hGo.transform.localScale = Vector3.one * 0.018f;
+                hGo.transform.localScale = Vector3.one * 0.026f;
                 Renderer hr = hGo.GetComponent<Renderer>();
                 SetColorSafe(hr, _facePullBaseColors[a]);
                 _facePullHandles[a] = hGo.transform;
@@ -1957,7 +1957,7 @@ namespace KineticCore.Runtime
                 tGo.name = tiltNames[t];
                 // Keep Collider enabled so Desktop Mouse Raycast and VR Fingertip drag both work!
                 tGo.transform.SetParent(DeskWorkspaceOrigin, false);
-                tGo.transform.localScale = new Vector3(0.018f, 0.005f, 0.018f);
+                tGo.transform.localScale = new Vector3(0.027f, 0.007f, 0.027f);
                 Renderer tr = tGo.GetComponent<Renderer>();
                 SetColorSafe(tr, _tiltHandleBaseColors[t]);
                 _tiltHandles[t] = tGo.transform;
@@ -1973,7 +1973,7 @@ namespace KineticCore.Runtime
             GameObject moveGo = GameObject.CreatePrimitive(PrimitiveType.Cube);
             moveGo.name = "MoveHandle_3D_Translation_XYZ";
             moveGo.transform.SetParent(DeskWorkspaceOrigin, false);
-            moveGo.transform.localScale = new Vector3(0.022f, 0.012f, 0.022f);
+            moveGo.transform.localScale = new Vector3(0.032f, 0.018f, 0.032f);
             _moveHandleRenderer = moveGo.GetComponent<Renderer>();
             SetColorSafe(_moveHandleRenderer, new Color(0.25f, 1.0f, 0.85f));
             _moveHandle = moveGo.transform;
@@ -2027,9 +2027,9 @@ namespace KineticCore.Runtime
                 Vector3 wpCenter = _sampleWorkpiece.localPosition;
                 Vector3[] faceOffsets =
                 {
-                    new Vector3(wMeters * 0.5f + 0.016f, 0f, 0f), // +X Width face
-                    new Vector3(0f, hMeters * 0.5f + 0.016f, 0f), // +Y Top/Height face
-                    new Vector3(0f, 0f, dMeters * 0.5f + 0.016f)  // +Z Depth face
+                    new Vector3(wMeters * 0.5f + 0.024f, 0f, 0f), // +X Width face
+                    new Vector3(0f, hMeters * 0.5f + 0.024f, 0f), // +Y Top/Height face
+                    new Vector3(0f, 0f, dMeters * 0.5f + 0.024f)  // +Z Depth face
                 };
                 for (int a = 0; a < 3; a++)
                 {
@@ -2037,16 +2037,16 @@ namespace KineticCore.Runtime
                     _facePullHandles[a].gameObject.SetActive(showHandles);
                     _facePullHandles[a].localPosition = wpCenter + faceOffsets[a];
                     bool isPulled = (_activeFacePullAxis == a);
-                    _facePullHandles[a].localScale = Vector3.one * (isPulled ? 0.023f : 0.018f);
+                    _facePullHandles[a].localScale = Vector3.one * (isPulled ? 0.034f : 0.026f);
                     SetColorSafe(_facePullRenderers[a], isPulled ? Color.white : _facePullBaseColors[a]);
                 }
 
                 // Position the 3 Angular Rotation / Tilt Handles around the upper corners of the 3D CAD Model
                 Vector3[] tiltOffsets =
                 {
-                    new Vector3(-wMeters * 0.5f - 0.018f, hMeters * 0.35f + 0.012f, 0f),                // TILT X° (Pitch)
-                    new Vector3(-wMeters * 0.35f - 0.010f, hMeters * 0.5f + 0.020f, -dMeters * 0.35f), // TILT Y° (Yaw)
-                    new Vector3( wMeters * 0.35f + 0.010f, hMeters * 0.5f + 0.020f, -dMeters * 0.35f)  // TILT Z° (Roll)
+                    new Vector3(-wMeters * 0.5f - 0.024f, hMeters * 0.35f + 0.016f, 0f),                // TILT X° (Pitch)
+                    new Vector3(-wMeters * 0.35f - 0.015f, hMeters * 0.5f + 0.026f, -dMeters * 0.35f), // TILT Y° (Yaw)
+                    new Vector3( wMeters * 0.35f + 0.015f, hMeters * 0.5f + 0.026f, -dMeters * 0.35f)  // TILT Z° (Roll)
                 };
                 for (int t = 0; t < 3; t++)
                 {
@@ -2055,18 +2055,18 @@ namespace KineticCore.Runtime
                     _tiltHandles[t].localPosition = wpCenter + tiltOffsets[t];
                     bool isTilted = (_activeTiltAxis == t);
                     _tiltHandles[t].localScale = isTilted
-                        ? new Vector3(0.024f, 0.007f, 0.024f)
-                        : new Vector3(0.018f, 0.005f, 0.018f);
+                        ? new Vector3(0.035f, 0.010f, 0.035f)
+                        : new Vector3(0.027f, 0.007f, 0.027f);
                     SetColorSafe(_tiltHandleRenderers[t], isTilted ? Color.white : _tiltHandleBaseColors[t]);
                 }
 
                 if (_moveHandle != null)
                 {
                     _moveHandle.gameObject.SetActive(showHandles);
-                    _moveHandle.localPosition = wpCenter + new Vector3(0f, -hMeters * 0.35f, -dMeters * 0.5f - 0.020f);
+                    _moveHandle.localPosition = wpCenter + new Vector3(0f, -hMeters * 0.35f, -dMeters * 0.5f - 0.026f);
                     _moveHandle.localScale = _activeMoveHandleDrag
-                        ? new Vector3(0.028f, 0.015f, 0.028f)
-                        : new Vector3(0.022f, 0.012f, 0.022f);
+                        ? new Vector3(0.040f, 0.022f, 0.040f)
+                        : new Vector3(0.032f, 0.018f, 0.032f);
                     SetColorSafe(_moveHandleRenderer, _activeMoveHandleDrag ? Color.white : new Color(0.25f, 1.0f, 0.85f));
                 }
             }
@@ -2154,13 +2154,13 @@ namespace KineticCore.Runtime
                     _activeMoveHandleDrag = true;
                 }
                 else if (!_activeMoveHandleDrag && _activeFacePullAxis < 0 && _activeTiltAxis < 0 &&
-                         _moveHandle != null && Vector3.Distance(pointerWorldPos, _moveHandle.position) < 0.036f)
+                         _moveHandle != null && Vector3.Distance(pointerWorldPos, _moveHandle.position) < 0.052f)
                 {
                     _activeMoveHandleDrag = true;
                     SpatialTactileAudio.Instance?.PlayPokeClick(_moveHandle.position);
                 }
                 else if (_activeMoveHandleDrag && _moveHandle != null &&
-                         Vector3.Distance(pointerWorldPos, _moveHandle.position) > 0.24f)
+                         Vector3.Distance(pointerWorldPos, _moveHandle.position) > 0.34f)
                 {
                     _activeMoveHandleDrag = false;
                 }
@@ -2171,12 +2171,12 @@ namespace KineticCore.Runtime
                     float dMeters = Mathf.Clamp((float)(CapturedDepthMm * 0.001), 0.010f, 0.600f);
                     float rawXMm = (localPtr.x - _workpieceHomeLocalPos.x) * 1000f;
                     float rawYMm = (localPtr.y - hMeters * 0.15f) * 1000f;
-                    float rawZMm = (localPtr.z + dMeters * 0.5f + 0.020f - _workpieceHomeLocalPos.z) * 1000f;
+                    float rawZMm = (localPtr.z + dMeters * 0.5f + 0.026f - _workpieceHomeLocalPos.z) * 1000f;
 
                     ModelTranslationMm = new Vector3(
-                        Mathf.Clamp(Mathf.Round(rawXMm / 2f) * 2f, -200f, 200f),
-                        Mathf.Clamp(Mathf.Round(rawYMm / 2f) * 2f, -50f, 220f),
-                        Mathf.Clamp(Mathf.Round(rawZMm / 2f) * 2f, -180f, 180f));
+                        Mathf.Clamp(Mathf.Round(rawXMm / 2f) * 2f, -300f, 300f),
+                        Mathf.Clamp(Mathf.Round(rawYMm / 2f) * 2f, -75f, 330f),
+                        Mathf.Clamp(Mathf.Round(rawZMm / 2f) * 2f, -270f, 270f));
 
                     int moveBucket = Mathf.RoundToInt((ModelTranslationMm.x + ModelTranslationMm.y + ModelTranslationMm.z) / 4f);
                     if (moveBucket != _lastMoveTickBucket)
@@ -2202,7 +2202,7 @@ namespace KineticCore.Runtime
                 {
                     for (int t = 0; t < 3; t++)
                     {
-                        if (_tiltHandles[t] != null && Vector3.Distance(pointerWorldPos, _tiltHandles[t].position) < 0.036f)
+                        if (_tiltHandles[t] != null && Vector3.Distance(pointerWorldPos, _tiltHandles[t].position) < 0.052f)
                         {
                             _activeTiltAxis = t;
                             SpatialTactileAudio.Instance?.PlayPokeClick(_tiltHandles[t].position);
@@ -2211,7 +2211,7 @@ namespace KineticCore.Runtime
                     }
                 }
                 else if (_activeTiltAxis >= 0 && _tiltHandles[_activeTiltAxis] != null &&
-                         Vector3.Distance(pointerWorldPos, _tiltHandles[_activeTiltAxis].position) > 0.22f)
+                         Vector3.Distance(pointerWorldPos, _tiltHandles[_activeTiltAxis].position) > 0.34f)
                 {
                     _activeTiltAxis = -1;
                 }
@@ -2267,7 +2267,7 @@ namespace KineticCore.Runtime
                 {
                     for (int a = 0; a < 3; a++)
                     {
-                        if (_facePullHandles[a] != null && Vector3.Distance(pointerWorldPos, _facePullHandles[a].position) < 0.036f)
+                        if (_facePullHandles[a] != null && Vector3.Distance(pointerWorldPos, _facePullHandles[a].position) < 0.052f)
                         {
                             _activeFacePullAxis = a;
                             SpatialTactileAudio.Instance?.PlayPokeClick(_facePullHandles[a].position);
@@ -2276,7 +2276,7 @@ namespace KineticCore.Runtime
                     }
                 }
                 else if (_facePullHandles[_activeFacePullAxis] != null &&
-                         Vector3.Distance(pointerWorldPos, _facePullHandles[_activeFacePullAxis].position) > 0.25f)
+                         Vector3.Distance(pointerWorldPos, _facePullHandles[_activeFacePullAxis].position) > 0.34f)
                 {
                     _activeFacePullAxis = -1;
                 }
@@ -2777,29 +2777,29 @@ namespace KineticCore.Runtime
             // Center Panel: Main Telemetry & Guided 4-Step Onboarding HUD
             TextMesh tm = WorldTextFactory.Create(
                 "VR_3D_Hologram_HUD", DeskWorkspaceOrigin,
-                new Vector3(0.05f, 0.245f, 0.09f), Quaternion.identity,
-                0.00185f, 36, new Color(0.15f, 0.95f, 1.0f), "KineticCAD Physical AI Active");
+                new Vector3(0.05f, 0.34f, 0.16f), Quaternion.identity,
+                0.0023f, 36, new Color(0.15f, 0.95f, 1.0f), "KineticCAD Physical AI Active");
             _vrHologramText = tm;
             _vrHudTransform = tm.transform;
-            AttachPanelBackingSlate(_vrHudTransform, new Vector3(0.54f, 0.130f, 0.003f), new Color(0.05f, 0.08f, 0.13f), new Color(0.10f, 0.65f, 0.85f));
+            AttachPanelBackingSlate(_vrHudTransform, new Vector3(0.76f, 0.185f, 0.003f), new Color(0.05f, 0.08f, 0.13f), new Color(0.10f, 0.65f, 0.85f));
 
             // Right Panel: 3D URDF + STL CAD & Live 60Hz Telemetry Inspector Panel
             TextMesh urdfTm = WorldTextFactory.Create(
                 "VR_3D_URDF_Inspector_HUD", DeskWorkspaceOrigin,
-                new Vector3(0.34f, 0.195f, 0.05f), Quaternion.Euler(0f, -20f, 0f),
-                0.00145f, 32, new Color(0.45f, 1.0f, 0.70f), "ROS 2 URDF & 3D-Print STL Inspector");
+                new Vector3(0.46f, 0.27f, 0.08f), Quaternion.Euler(0f, -20f, 0f),
+                0.00185f, 32, new Color(0.45f, 1.0f, 0.70f), "ROS 2 URDF & 3D-Print STL Inspector");
             _urdfInspectorText = urdfTm;
             _urdfInspectorTransform = urdfTm.transform;
-            AttachPanelBackingSlate(_urdfInspectorTransform, new Vector3(0.38f, 0.105f, 0.003f), new Color(0.04f, 0.10f, 0.08f), new Color(0.15f, 0.75f, 0.45f));
+            AttachPanelBackingSlate(_urdfInspectorTransform, new Vector3(0.52f, 0.145f, 0.003f), new Color(0.04f, 0.10f, 0.08f), new Color(0.15f, 0.75f, 0.45f));
 
             // Left Panel: PoE Screw Theory & Mechanical Spec Sheet Panel
             TextMesh specTm = WorldTextFactory.Create(
                 "VR_3D_PoE_SpecSheet_HUD", DeskWorkspaceOrigin,
-                new Vector3(-0.24f, 0.195f, 0.05f), Quaternion.Euler(0f, 20f, 0f),
-                0.00145f, 32, new Color(1.0f, 0.85f, 0.35f), "PoE Screw Kinematics Spec Sheet");
+                new Vector3(-0.36f, 0.27f, 0.08f), Quaternion.Euler(0f, 20f, 0f),
+                0.00185f, 32, new Color(1.0f, 0.85f, 0.35f), "PoE Screw Kinematics Spec Sheet");
             _specSheetText = specTm;
             _specSheetTransform = specTm.transform;
-            AttachPanelBackingSlate(_specSheetTransform, new Vector3(0.38f, 0.105f, 0.003f), new Color(0.11f, 0.08f, 0.04f), new Color(0.85f, 0.65f, 0.18f));
+            AttachPanelBackingSlate(_specSheetTransform, new Vector3(0.52f, 0.145f, 0.003f), new Color(0.11f, 0.08f, 0.04f), new Color(0.85f, 0.65f, 0.18f));
         }
 
         private void AttachPanelBackingSlate(Transform textParent, Vector3 scaleMeters, Color slateColor, Color rimColor)

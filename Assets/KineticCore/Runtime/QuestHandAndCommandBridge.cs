@@ -180,15 +180,15 @@ namespace KineticCore.Runtime
             // 1. Front Desk Poke-Button Bar (indices 0..6)
             GameObject barRoot = new GameObject("VR_Desk_PokeButtonBar");
             barRoot.transform.SetParent(DeskWorkspaceOrigin, false);
-            barRoot.transform.localPosition = new Vector3(0.08f, 0.014f, -0.15f);
+            barRoot.transform.localPosition = new Vector3(0.08f, 0.016f, -0.22f);
             barRoot.transform.localRotation = Quaternion.identity;
 
             const int deskBarCount = 7;
             for (int i = 0; i < deskBarCount; i++)
             {
-                float xOffset = (i - (deskBarCount - 1) * 0.5f) * 0.068f;
+                float xOffset = (i - (deskBarCount - 1) * 0.5f) * 0.092f;
                 Vector3 restPos = new Vector3(xOffset, 0f, 0f);
-                Vector3 restScale = new Vector3(0.060f, 0.022f, 0.042f);
+                Vector3 restScale = new Vector3(0.082f, 0.028f, 0.056f);
 
                 GameObject btn = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 btn.name = $"VRButton_{_buttonActions[i]}";
@@ -204,15 +204,15 @@ namespace KineticCore.Runtime
 
                 WorldTextFactory.Create(
                     $"Label_{_buttonActions[i]}", barRoot.transform,
-                    new Vector3(xOffset, 0.025f, 0.0f), Quaternion.Euler(45f, 0f, 0f),
-                    0.0018f, 32, Color.white, _buttonLabels[i]);
+                    new Vector3(xOffset, 0.032f, 0.0f), Quaternion.Euler(45f, 0f, 0f),
+                    0.0022f, 32, Color.white, _buttonLabels[i]);
             }
 
             // 2. Left-Hand Spatial Fusion 360 CAD Palette (indices 7..12)
             // Built in front-facing XY panel coordinates (-Z faces the user's eyes!) so buttons & text NEVER face away!
             GameObject leftPaletteObj = new GameObject("LeftHand_SpatialFusion_Palette");
             leftPaletteObj.transform.SetParent(DeskWorkspaceOrigin, false);
-            leftPaletteObj.transform.localPosition = new Vector3(-0.235f, 0.095f, -0.045f);
+            leftPaletteObj.transform.localPosition = new Vector3(-0.32f, 0.125f, -0.06f);
             leftPaletteObj.transform.localRotation = Quaternion.Euler(0f, -22f, 0f);
             _leftHandPaletteRoot = leftPaletteObj.transform;
 
@@ -222,13 +222,13 @@ namespace KineticCore.Runtime
             Destroy(slate.GetComponent<Collider>());
             slate.transform.SetParent(_leftHandPaletteRoot, false);
             slate.transform.localPosition = new Vector3(0f, 0.002f, 0.011f);
-            slate.transform.localScale = new Vector3(0.215f, 0.130f, 0.006f);
+            slate.transform.localScale = new Vector3(0.305f, 0.185f, 0.007f);
             SetColorSafe(slate.GetComponent<Renderer>(), new Color(0.06f, 0.10f, 0.16f));
 
             _leftPaletteHeaderLabel = WorldTextFactory.Create(
                 "LeftPalette_Header", _leftHandPaletteRoot,
-                new Vector3(0f, 0.054f, -0.004f), Quaternion.identity,
-                0.00135f, 30, new Color(0.35f, 0.95f, 1.0f),
+                new Vector3(0f, 0.076f, -0.005f), Quaternion.identity,
+                0.00185f, 30, new Color(0.35f, 0.95f, 1.0f),
                 "FUSION 360 TOOL PALETTE\n[Create | Combine | Extrude | Pattern]");
 
             // Create spinning 3D holographic primitive preview shapes above the Left-Hand Palette
@@ -248,7 +248,7 @@ namespace KineticCore.Runtime
                 pObj.name = $"LeftPalette_PreviewPrim_{p}";
                 Destroy(pObj.GetComponent<Collider>());
                 pObj.transform.SetParent(_leftHandPaletteRoot, false);
-                pObj.transform.localPosition = new Vector3(0f, 0.095f, -0.004f);
+                pObj.transform.localPosition = new Vector3(0f, 0.132f, -0.005f);
                 pObj.transform.localScale = primScales[p];
                 _leftPalettePreviewRenderers[p] = pObj.GetComponent<Renderer>();
                 SetColorSafe(_leftPalettePreviewRenderers[p], new Color(0.15f, 0.90f, 1.0f));
@@ -262,10 +262,10 @@ namespace KineticCore.Runtime
                 int idx = deskBarCount + k;
                 int col = k % 3;
                 int row = k / 3;
-                float px = (col - 1) * 0.064f;
-                float py = (row == 0) ? 0.018f : -0.028f;
+                float px = (col - 1) * 0.090f;
+                float py = (row == 0) ? 0.026f : -0.038f;
                 Vector3 restPos = new Vector3(px, py, 0f);
-                Vector3 restScale = new Vector3(0.056f, 0.036f, 0.016f);
+                Vector3 restScale = new Vector3(0.080f, 0.050f, 0.020f);
 
                 GameObject btn = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 btn.name = $"VRLeftPalette_{_buttonActions[idx]}";
@@ -281,8 +281,8 @@ namespace KineticCore.Runtime
 
                 WorldTextFactory.Create(
                     $"Label_{_buttonActions[idx]}", _leftHandPaletteRoot,
-                    new Vector3(px, py, -0.011f), Quaternion.identity,
-                    0.00140f, 28, Color.white, _buttonLabels[idx]);
+                    new Vector3(px, py, -0.013f), Quaternion.identity,
+                    0.00185f, 28, Color.white, _buttonLabels[idx]);
             }
         }
 
@@ -331,7 +331,7 @@ namespace KineticCore.Runtime
             if (!_leftPaletteInitialized && cam != null && cam.transform.position.sqrMagnitude > 0.0001f)
             {
                 _leftPaletteInitialized = true;
-                _leftHandPaletteRoot.localPosition = new Vector3(-0.235f, 0.095f, -0.045f);
+                _leftHandPaletteRoot.localPosition = new Vector3(-0.32f, 0.125f, -0.06f);
                 Vector3 initToPalette = _leftHandPaletteRoot.position - cam.transform.position;
                 if (initToPalette.sqrMagnitude > 0.001f)
                     _leftHandPaletteRoot.rotation = Quaternion.LookRotation(initToPalette.normalized, Vector3.up);
@@ -390,7 +390,7 @@ namespace KineticCore.Runtime
                     if (MechanismController != null && DeskWorkspaceOrigin != null)
                     {
                         Vector3? palettePreviewPos = (_leftHandPaletteRoot != null)
-                            ? (Vector3?)_leftHandPaletteRoot.TransformPoint(new Vector3(0f, 0.095f, -0.004f))
+                            ? (Vector3?)_leftHandPaletteRoot.TransformPoint(new Vector3(0f, 0.132f, -0.005f))
                             : null;
                         bool handledDirectCad = MechanismController.TryHandleDirectSpatialCadManipulation(
                             rightTipWorld, true, -1, palettePreviewPos, IsEitherHandPinching());
@@ -612,7 +612,7 @@ namespace KineticCore.Runtime
                     Vector3 worldHit = ray.GetPoint(enter);
                     bool shiftHeld = KInput.GetKey(KeyCode.LeftShift) || KInput.GetKey(KeyCode.RightShift);
                     Vector3? palettePreviewPos = (_leftHandPaletteRoot != null)
-                        ? (Vector3?)_leftHandPaletteRoot.TransformPoint(new Vector3(0f, 0.095f, -0.004f))
+                        ? (Vector3?)_leftHandPaletteRoot.TransformPoint(new Vector3(0f, 0.132f, -0.005f))
                         : null;
                     if (MechanismController.TryHandleDirectSpatialCadManipulation(worldHit, true, -1, palettePreviewPos, shiftHeld))
                         return;
@@ -723,7 +723,7 @@ namespace KineticCore.Runtime
         {
             if (_buttonTransforms == null) return;
             bool onCooldown = (Time.time - _lastPokeTime) < ButtonCooldownSec;
-            float hitRadius = Mathf.Max(ButtonPokeRadiusM, 0.048f);
+            float hitRadius = Mathf.Max(ButtonPokeRadiusM, 0.062f);
             float hoverRadius = hitRadius * 1.45f;
             int currentHover = -1;
 
@@ -739,7 +739,7 @@ namespace KineticCore.Runtime
                 float dz = Mathf.Abs(fingertipWorld.z - bPos.z);
                 float dist = Vector3.Distance(fingertipWorld, bPos);
 
-                bool isTouching = (dist < hitRadius) || (dx < 0.042f && dy < 0.048f && dz < 0.042f);
+                bool isTouching = (dist < hitRadius) || (dx < 0.056f && dy < 0.060f && dz < 0.056f);
                 bool isHovering = !isTouching && (dist < hoverRadius);
                 if (isHovering) currentHover = i;
 
