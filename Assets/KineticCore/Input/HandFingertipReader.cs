@@ -13,12 +13,16 @@ namespace KineticCore.Input
 
         public Vector3 LeftWorld  { get; private set; }
         public Vector3 RightWorld { get; private set; }
+        public Vector3 LeftPalmWorld  { get; private set; }
+        public Vector3 RightPalmWorld { get; private set; }
         public bool    LeftValid  { get; private set; }
         public bool    RightValid { get; private set; }
         public bool    BothValid  { get; private set; }
         public bool    LeftPointingOnly  { get; private set; }
         public bool    RightPointingOnly { get; private set; }
         public bool    BothPointingOnly  { get; private set; }
+        public bool    LeftPalmFacingCamera  { get; private set; }
+        public bool    RightPalmFacingCamera { get; private set; }
 
         private XRHandSubsystem _subsystem;
         private readonly List<XRHandSubsystem> _subsystemList = new List<XRHandSubsystem>();
@@ -59,20 +63,31 @@ namespace KineticCore.Input
 
             bool leftOk = false, rightOk = false;
             bool leftPoint = false, rightPoint = false;
+            bool leftPalmFacing = false, rightPalmFacing = false;
+            Vector3 leftPalmPos = LeftWorld, rightPalmPos = RightWorld;
+
+            Camera cam = Camera.main;
+            Vector3 camPos = cam != null
+                ? cam.transform.position
+                : (_trackingSpace != null ? _trackingSpace.position + Vector3.up * 0.1f : Vector3.zero);
 
             // 1. Primary: Meta OVRSkeleton / OVRHand (native OVRCameraRig bone hierarchy, never double-transformed)
             EnsureOvrHandsBound();
             if (TryGetOvrIndexTip(_leftOvrSkeleton, _leftOvrHand, _trackingSpace, out Vector3 ovrL))
             {
                 LeftWorld = ovrL;
+                leftPalmPos = ovrL;
                 leftOk = true;
                 leftPoint = IsOvrIndexOnlyPointing(_leftOvrSkeleton);
+                leftPalmFacing = TryGetOvrPalmFacingCamera(_leftOvrSkeleton, true, camPos, out leftPalmPos);
             }
             if (TryGetOvrIndexTip(_rightOvrSkeleton, _rightOvrHand, _trackingSpace, out Vector3 ovrR))
             {
                 RightWorld = ovrR;
+                rightPalmPos = ovrR;
                 rightOk = true;
                 rightPoint = IsOvrIndexOnlyPointing(_rightOvrSkeleton);
+                rightPalmFacing = TryGetOvrPalmFacingCamera(_rightOvrSkeleton, false, camPos, out rightPalmPos);
             }
 
             // 2. Secondary: OpenXR XRHandSubsystem (joint poses in TrackingSpace)
@@ -86,12 +101,17 @@ namespace KineticCore.Input
                         if (joint.TryGetPose(out Pose p))
                         {
                             LeftWorld = _trackingSpace != null ? _trackingSpace.TransformPoint(p.position) : p.position;
+                            leftPalmPos = LeftWorld;
                             leftOk = LeftWorld.sqrMagnitude > 0.0001f;
                         }
                     }
                     if (!leftPoint)
                     {
                         leftPoint = IsOpenXrIndexOnlyPointing(_subsystem.leftHand);
+                    }
+                    if (!leftPalmFacing)
+                    {
+                        leftPalmFacing = TryGetOpenXrPalmFacingCamera(_subsystem.leftHand, true, _trackingSpace, camPos, out leftPalmPos);
                     }
                 }
                 if (_subsystem.rightHand.isTracked)
@@ -102,12 +122,17 @@ namespace KineticCore.Input
                         if (joint.TryGetPose(out Pose p))
                         {
                             RightWorld = _trackingSpace != null ? _trackingSpace.TransformPoint(p.position) : p.position;
+                            rightPalmPos = RightWorld;
                             rightOk = RightWorld.sqrMagnitude > 0.0001f;
                         }
                     }
                     if (!rightPoint)
                     {
                         rightPoint = IsOpenXrIndexOnlyPointing(_subsystem.rightHand);
+                    }
+                    if (!rightPalmFacing)
+                    {
+                        rightPalmFacing = TryGetOpenXrPalmFacingCamera(_subsystem.rightHand, false, _trackingSpace, camPos, out rightPalmPos);
                     }
                 }
             }
@@ -116,12 +141,14 @@ namespace KineticCore.Input
             if (!leftOk && TryGetOvrInputHandWorld(true, _trackingSpace, out Vector3 ctrlL, out bool ctrlLPoint))
             {
                 LeftWorld = ctrlL;
+                leftPalmPos = ctrlL;
                 leftOk = true;
                 leftPoint = ctrlLPoint;
             }
             if (!rightOk && TryGetOvrInputHandWorld(false, _trackingSpace, out Vector3 ctrlR, out bool ctrlRPoint))
             {
                 RightWorld = ctrlR;
+                rightPalmPos = ctrlR;
                 rightOk = true;
                 rightPoint = ctrlRPoint;
             }
@@ -129,9 +156,13 @@ namespace KineticCore.Input
             LeftValid = leftOk;
             RightValid = rightOk;
             BothValid = leftOk && rightOk;
+            LeftPalmWorld = leftPalmPos;
+            RightPalmWorld = rightPalmPos;
             LeftPointingOnly = leftOk && leftPoint;
             RightPointingOnly = rightOk && rightPoint;
             BothPointingOnly = LeftPointingOnly && RightPointingOnly;
+            LeftPalmFacingCamera = leftOk && leftPalmFacing;
+            RightPalmFacingCamera = rightOk && rightPalmFacing;
         }
 
         private void EnsureOrigin()
@@ -365,6 +396,69 @@ namespace KineticCore.Input
                                Vector3.Distance(litTip.position, wrist.position) < idxWristDist * 0.84f;
 
             return middleCurled && ringCurled && pinkyCurled;
+        }
+
+        public static bool TryGetOvrPalmFacingCamera(OVRSkeleton skel, bool isLeft, Vector3 cameraWorldPos, out Vector3 palmWorldCenter)
+        {
+            palmWorldCenter = Vector3.zero;
+            if (skel == null || !skel.IsDataValid || skel.Bones == null) return false;
+
+            Transform wrist = skel.transform;
+            Transform index1 = null;
+            Transform pinky1 = null;
+
+            foreach (var bone in skel.Bones)
+            {
+                if (bone == null || bone.Transform == null) continue;
+                OVRSkeleton.BoneId id = bone.Id;
+                if (id == OVRSkeleton.BoneId.Hand_WristRoot || id == OVRSkeleton.BoneId.XRHand_Wrist)
+                    wrist = bone.Transform;
+                else if (id == OVRSkeleton.BoneId.Hand_Index1 || id == OVRSkeleton.BoneId.XRHand_IndexProximal)
+                    index1 = bone.Transform;
+                else if (id == OVRSkeleton.BoneId.Hand_Pinky1 || id == OVRSkeleton.BoneId.XRHand_LittleProximal)
+                    pinky1 = bone.Transform;
+            }
+
+            if (index1 == null || pinky1 == null) return false;
+            Vector3 wPos = wrist.position;
+            Vector3 iPos = index1.position;
+            Vector3 pPos = pinky1.position;
+            palmWorldCenter = (wPos + iPos + pPos) / 3f;
+
+            Vector3 vIndex = (iPos - wPos).normalized;
+            Vector3 vPinky = (pPos - wPos).normalized;
+            // In Unity's left-handed coordinate system:
+            // Left palm outward normal = Cross(vPinky, vIndex); Right palm outward normal = Cross(vIndex, vPinky)
+            Vector3 palmNormal = isLeft
+                ? Vector3.Cross(vPinky, vIndex).normalized
+                : Vector3.Cross(vIndex, vPinky).normalized;
+
+            Vector3 toCam = (cameraWorldPos - palmWorldCenter).normalized;
+            return Vector3.Dot(palmNormal, toCam) > 0.42f;
+        }
+
+        public static bool TryGetOpenXrPalmFacingCamera(XRHand hand, bool isLeft, Transform trackingSpace, Vector3 cameraWorldPos, out Vector3 palmWorldCenter)
+        {
+            palmWorldCenter = Vector3.zero;
+            if (!hand.isTracked) return false;
+            if (!hand.GetJoint(XRHandJointID.Wrist).TryGetPose(out Pose wrist) ||
+                !hand.GetJoint(XRHandJointID.IndexProximal).TryGetPose(out Pose idxProx) ||
+                !hand.GetJoint(XRHandJointID.LittleProximal).TryGetPose(out Pose litProx))
+                return false;
+
+            Vector3 wPos = trackingSpace != null ? trackingSpace.TransformPoint(wrist.position) : wrist.position;
+            Vector3 iPos = trackingSpace != null ? trackingSpace.TransformPoint(idxProx.position) : idxProx.position;
+            Vector3 pPos = trackingSpace != null ? trackingSpace.TransformPoint(litProx.position) : litProx.position;
+            palmWorldCenter = (wPos + iPos + pPos) / 3f;
+
+            Vector3 vIndex = (iPos - wPos).normalized;
+            Vector3 vPinky = (pPos - wPos).normalized;
+            Vector3 palmNormal = isLeft
+                ? Vector3.Cross(vPinky, vIndex).normalized
+                : Vector3.Cross(vIndex, vPinky).normalized;
+
+            Vector3 toCam = (cameraWorldPos - palmWorldCenter).normalized;
+            return Vector3.Dot(palmNormal, toCam) > 0.42f;
         }
 
         public static bool TryGetOvrInputHandWorld(bool isLeft, Transform trackingSpace, out Vector3 worldPos, out bool isPointingOnly)

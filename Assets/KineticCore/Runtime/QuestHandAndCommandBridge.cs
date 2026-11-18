@@ -94,6 +94,7 @@ namespace KineticCore.Runtime
         private int _draggedFacePullAxis = -1;
         private int _draggedTiltAxis = -1;
         private bool _draggedMoveHandle = false;
+        private bool _leftPaletteInitialized = false;
         private GameObject _fingertipReticle;
         private Renderer _reticleRenderer;
         private Transform _cachedRigOrigin;
@@ -326,39 +327,33 @@ namespace KineticCore.Runtime
 
             Camera cam = MechanismController != null && MechanismController.HeadCamera != null ? MechanismController.HeadCamera : Camera.main;
 
-            // Attach palette beside the user's Left Hand when held up in VR; otherwise dock on Left Wing of Desk
-            if (isVrActive && _typedReader != null && _typedReader.LeftValid && !(_typedReader.LeftPointingOnly && _typedReader.RightPointingOnly))
+            // Initialize starting orientation once on boot (or after CENTER DESK reset) so the panel starts facing the user
+            if (!_leftPaletteInitialized && cam != null && cam.transform.position.sqrMagnitude > 0.0001f)
             {
-                Vector3 leftWorld = _typedReader.LeftWorld;
-                Vector3 deskLocal = DeskWorkspaceOrigin.InverseTransformPoint(leftWorld);
-                if (deskLocal.y > 0.02f && deskLocal.y < 0.55f)
-                {
-                    Vector3 targetWorld = leftWorld + DeskWorkspaceOrigin.right * 0.105f + Vector3.up * 0.045f;
-                    _leftHandPaletteRoot.position = Vector3.Lerp(_leftHandPaletteRoot.position, targetWorld, Time.deltaTime * 14f);
-                    if (cam != null)
-                    {
-                        // Just like _vrHudTransform: LookRotation(fromEyeToPalette) makes local -Z (buttons & text) face 100% toward the user's eyes!
-                        Vector3 fromEyeToPalette = _leftHandPaletteRoot.position - cam.transform.position;
-                        if (fromEyeToPalette.sqrMagnitude > 0.001f)
-                        {
-                            Quaternion lookRot = Quaternion.LookRotation(fromEyeToPalette.normalized, Vector3.up);
-                            _leftHandPaletteRoot.rotation = Quaternion.Slerp(_leftHandPaletteRoot.rotation, lookRot, Time.deltaTime * 16f);
-                        }
-                    }
-                    return;
-                }
+                _leftPaletteInitialized = true;
+                _leftHandPaletteRoot.localPosition = new Vector3(-0.235f, 0.095f, -0.045f);
+                Vector3 initToPalette = _leftHandPaletteRoot.position - cam.transform.position;
+                if (initToPalette.sqrMagnitude > 0.001f)
+                    _leftHandPaletteRoot.rotation = Quaternion.LookRotation(initToPalette.normalized, Vector3.up);
             }
 
-            // Default ergonomic Left-Wing Desk Dock (also billboarded toward the user's eyes!)
-            Vector3 dockWorldPos = DeskWorkspaceOrigin.TransformPoint(new Vector3(-0.235f, 0.095f, -0.045f));
-            _leftHandPaletteRoot.position = Vector3.Lerp(_leftHandPaletteRoot.position, dockWorldPos, Time.deltaTime * 10f);
-            if (cam != null)
+            // ONLY follow the user's Left Hand when their Left Palm is actively facing the camera!
+            // Otherwise, keep the Left-Hand Palette completely still in 3D space so it never moves unexpectedly.
+            if (isVrActive && _typedReader != null && _typedReader.LeftValid && _typedReader.LeftPalmFacingCamera &&
+                !(_typedReader.LeftPointingOnly && _typedReader.RightPointingOnly))
             {
-                Vector3 fromEyeToDock = _leftHandPaletteRoot.position - cam.transform.position;
-                if (fromEyeToDock.sqrMagnitude > 0.001f)
+                Vector3 palmWorld = _typedReader.LeftPalmWorld.sqrMagnitude > 0.0001f ? _typedReader.LeftPalmWorld : _typedReader.LeftWorld;
+                Vector3 targetWorld = palmWorld + DeskWorkspaceOrigin.right * 0.115f + Vector3.up * 0.035f;
+                _leftHandPaletteRoot.position = Vector3.Lerp(_leftHandPaletteRoot.position, targetWorld, Time.deltaTime * 14f);
+                if (cam != null)
                 {
-                    Quaternion dockLookRot = Quaternion.LookRotation(fromEyeToDock.normalized, Vector3.up);
-                    _leftHandPaletteRoot.rotation = Quaternion.Slerp(_leftHandPaletteRoot.rotation, dockLookRot, Time.deltaTime * 12f);
+                    // LookRotation(fromEyeToPalette) makes local -Z (buttons & text) face 100% toward the user's eyes!
+                    Vector3 fromEyeToPalette = _leftHandPaletteRoot.position - cam.transform.position;
+                    if (fromEyeToPalette.sqrMagnitude > 0.001f)
+                    {
+                        Quaternion lookRot = Quaternion.LookRotation(fromEyeToPalette.normalized, Vector3.up);
+                        _leftHandPaletteRoot.rotation = Quaternion.Slerp(_leftHandPaletteRoot.rotation, lookRot, Time.deltaTime * 16f);
+                    }
                 }
             }
         }
@@ -1062,7 +1057,10 @@ namespace KineticCore.Runtime
                 case "SynthesizeDeep":             MechanismController.SynthesizeDeep();             return;
                 case "ExportUrdf":                 MechanismController.ExportUrdf();                 return;
                 case "TogglePuppet":               MechanismController.TogglePuppet();               return;
-                case "ResetPose":                  MechanismController.ResetPose();                  return;
+                case "ResetPose":
+                    _leftPaletteInitialized = false;
+                    MechanismController.ResetPose();
+                    return;
                 default: Debug.LogWarning($"[QuestBridge] Unknown command '{actionName}'"); return;
             }
         }

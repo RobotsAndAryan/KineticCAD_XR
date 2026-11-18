@@ -2953,15 +2953,22 @@ namespace KineticCore.Runtime
             if (TargetTransform != null)
                 TargetTransform.position = DeskWorkspaceOrigin.TransformPoint(ManualTargetLocalPos);
 
-            // Update "Hold-In-Your-Hands" 1:1 Physical Print Preview on the RIGHT HAND (so it never collides with Left-Hand Palette!)
+            // Update "Hold-In-Your-Hands" 1:1 Physical Print Preview on the RIGHT HAND:
+            // ONLY follow the Right Hand when the Right Palm is facing the camera; otherwise stay completely still!
             if (HandInspectActive && _handInspectRoot != null)
             {
                 if (_cachedTipReader == null) _cachedTipReader = FindAnyObjectByType<HandFingertipReader>();
-                if (!IsFlatEditorMode && _cachedTipReader != null && (_cachedTipReader.RightValid || _cachedTipReader.LeftValid))
+                if (!IsFlatEditorMode)
                 {
-                    Vector3 handPos = _cachedTipReader.RightValid ? _cachedTipReader.RightWorld : _cachedTipReader.LeftWorld;
-                    _handInspectRoot.transform.position = Vector3.Lerp(_handInspectRoot.transform.position, handPos + Vector3.up * 0.055f, Time.deltaTime * 14f);
-                    _handInspectRoot.transform.Rotate(Vector3.up, Time.deltaTime * 28f, Space.Self);
+                    if (_cachedTipReader != null && _cachedTipReader.RightValid && _cachedTipReader.RightPalmFacingCamera)
+                    {
+                        Vector3 handPos = _cachedTipReader.RightPalmWorld.sqrMagnitude > 0.0001f
+                            ? _cachedTipReader.RightPalmWorld
+                            : _cachedTipReader.RightWorld;
+                        _handInspectRoot.transform.position = Vector3.Lerp(_handInspectRoot.transform.position, handPos + Vector3.up * 0.060f, Time.deltaTime * 14f);
+                        _handInspectRoot.transform.rotation = Quaternion.Euler(ModelTiltDeg);
+                    }
+                    // When Right Palm is NOT facing the camera, _handInspectRoot stays completely still in 3D space!
                 }
                 else
                 {
